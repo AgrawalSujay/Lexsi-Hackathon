@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "turnguard"
+version = "0.1.0"
+description = "Multi-turn, multilingual prompt-injection evaluation and repair."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = ["pyyaml", "numpy", "auditkit"]
+
+[project.optional-dependencies]
+dev = ["pytest", "ruff"]
+gpu = [
+    "torch",
+    "transformers>=5.15,<5.22",
+    "accelerate",
+    "peft",
+    "safetune",
+    "auditkit[transformers]",
+]
+data = ["curatorkit[generation]"]
+circuit = ["circuitkit"]
+
+[tool.setuptools.packages.find]
+include = ["turnguard*"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
