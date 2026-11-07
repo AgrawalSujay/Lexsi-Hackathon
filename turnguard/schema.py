@@ -294,3 +294,31 @@ def payload_parts(payload: dict) -> list[dict]:
         ):
             raise ValueError("user_turn slot must be /<index>")
     return copy.deepcopy(parts)
+
+
+@dataclass
+class EpisodeRecord:
+    """A deterministic episode trace and its independently computed outcome."""
+
+    episode_id: str
+    spec_sha256: str
+    arm: str
+    model: str
+    messages_model: list[dict]
+    messages_openai: list[dict]
+    calls: list[dict]
+    answers: list[dict]
+    final_state: dict
+    steps: int
+    malformed_turns: int
+    result: dict
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+    def to_json(self) -> str:
+        return canonical_json(self.to_dict())
+
+    @classmethod
+    def from_json(cls, value: str) -> "EpisodeRecord":
+        return cls(**json.loads(value))
