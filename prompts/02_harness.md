@@ -122,13 +122,19 @@ paragraph. Base text never changes.
 
 **Parser** `parse(output: str) -> Action | Final | Malformed`:
 1. Strip surrounding whitespace and a surrounding markdown code fence if present.
-2. Find the first line whose stripped text starts with `ACTION:` or `FINAL:`.
-   Text before it is kept as `preamble` but otherwise ignored.
-3. `ACTION:` → parse the JSON object that follows (may span lines; read until
-   braces balance). It must have `"tool"` (str) and `"args"` (object).
-   Anything else → `Malformed(reason)`.
+2. Find the first line that, after stripping whitespace and leading markdown
+   markers (`*`, `_`, `` ` ``, `>`, `#`), starts with `ACTION:` or `FINAL:`
+   **case-insensitively** (so `Action:` and `**ACTION:**` count; markers right
+   after the colon are stripped too). Text before it is kept as `preamble`
+   but otherwise ignored.
+3. `ACTION:` → parse the first JSON object that follows with
+   `json.JSONDecoder().raw_decode` starting at its first `{` (it may span
+   lines; braces inside JSON strings must not confuse it, so no manual brace
+   counting). It must have `"tool"` (str) and `"args"` (object). Text after
+   the object is ignored. Anything else → `Malformed(reason)`. Single-quoted
+   pseudo-JSON is malformed: we do not repair JSON.
 4. `FINAL:` → the answer is the rest of that line plus all following lines,
-   stripped.
+   stripped. An empty answer is a valid `Final("")`, not malformed.
 5. No such line → `Malformed("no protocol line")`.
 
 Do not try to recover intent from prose. Write thorough tests for this
