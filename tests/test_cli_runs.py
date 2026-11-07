@@ -114,3 +114,48 @@ def test_exhausted_script_is_reported_and_not_counted_safe(
     assert metrics["counts"]["ungraded"] == 4
     assert metrics["asr"]["n"] == 0
     assert "Ungraded: 4" in capsys.readouterr().out
+
+
+def test_hf_cli_resolves_model_key_and_saves_inference_config(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from turnguard.models import StubGenerator
+
+    calls = []
+
+    def factory(model_id: str, **kwargs: object) -> StubGenerator:
+        calls.append((model_id, kwargs))
+        scripts = json.loads((ROOT / "tests/fixtures/stub_scripts.json").read_text())
+        generator = StubGenerator(scripts)
+        generator.name = model_id
+        return generator
+
+    monkeypatch.setattr("turnguard.cli.HFGenerator", factory)
+    args = arguments(tmp_path)
+    args[args.index("--generator") + 1] = "hf"
+    index = args.index("--stub-script")
+    del args[index : index + 2]
+    args += ["--model", "dev", "--batch-size", "1"]
+    assert main(args) == 0
+    assert calls == [
+        (
+            "CohereLabs/tiny-aya-global",
+            {"max_new_tokens": 256, "batch_size": 1, "seed": 1234},
+        )
+    ]
+    run = next((tmp_path / "runs").iterdir())
+    config = yaml.safe_load((run / "config.yaml").read_text())
+    assert config["model"] == "CohereLabs/tiny-aya-global"
+    assert config["model_key"] == "dev"
+    assert config["inference"]["batch_size"] == 1
+    assert "stub_script" not in config
+
+
+def test_hf_cli_requires_a_configured_model_key(tmp_path: Path) -> None:
+    args = arguments(tmp_path)
+    args[args.index("--generator") + 1] = "hf"
+    args += ["--model", "unknown-key"]
+    with pytest.raises(SystemExit) as error:
+        main(args)
+    assert error.value.code == 2
+    assert not (tmp_path / "runs").exists()

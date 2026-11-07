@@ -11,7 +11,7 @@ import yaml
 from turnguard.config import load_config
 from turnguard.harness import run_episodes
 from turnguard.metrics import compute_metrics
-from turnguard.models import StubGenerator
+from turnguard.models import HFGenerator, StubGenerator
 from turnguard.runs import new_run_dir
 from turnguard.schema import EpisodeSpec, validate_episode
 
@@ -37,28 +37,49 @@ def _run(args: argparse.Namespace) -> int:
         problems = validate_episode(spec, twins=by_id)
         if problems:
             raise ValueError(f"{spec.id}: {'; '.join(problems)}")
-    if args.generator != "stub":
-        raise ValueError("HF generator will be implemented in task 02 step 7")
-    if not args.stub_script:
-        raise ValueError("--stub-script is required for --generator stub")
-    script_path = Path(args.stub_script).expanduser().resolve()
-    script_bytes = script_path.read_bytes()
-    scripts = json.loads(script_bytes)
-    if not isinstance(scripts, dict) or not all(
-        isinstance(k, str)
-        and isinstance(v, list)
-        and all(isinstance(item, str) for item in v)
-        for k, v in scripts.items()
-    ):
-        raise ValueError("Stub scripts must map episode IDs to lists of strings")
-    missing = by_id.keys() - scripts.keys()
-    if missing:
-        raise ValueError(f"Missing stub scripts: {sorted(missing)}")
+    script_info = {}
+    decoding = config["decoding"]
+    batch_size = (
+        args.batch_size
+        if args.batch_size is not None
+        else config.get("inference", {}).get("batch_size", 8)
+    )
+    if args.generator == "stub":
+        if not args.stub_script:
+            raise ValueError("--stub-script is required for --generator stub")
+        script_path = Path(args.stub_script).expanduser().resolve()
+        script_bytes = script_path.read_bytes()
+        scripts = json.loads(script_bytes)
+        if not isinstance(scripts, dict) or not all(
+            isinstance(k, str)
+            and isinstance(v, list)
+            and all(isinstance(item, str) for item in v)
+            for k, v in scripts.items()
+        ):
+            raise ValueError("Stub scripts must map episode IDs to lists of strings")
+        missing = by_id.keys() - scripts.keys()
+        if missing:
+            raise ValueError(f"Missing stub scripts: {sorted(missing)}")
+        generator = StubGenerator(scripts)
+        script_info = {
+            "stub_script": str(script_path),
+            "stub_script_sha256": hashlib.sha256(script_bytes).hexdigest(),
+        }
+    else:
+        if not args.model or args.model not in config["models"]:
+            raise ValueError(
+                f"--model must be a configured key: {', '.join(config['models'])}"
+            )
+        generator = HFGenerator(
+            config["models"][args.model],
+            max_new_tokens=decoding["max_new_tokens"],
+            batch_size=batch_size,
+            seed=config["seed"],
+        )
     decoding = config["decoding"]
     extra = config.get("system_extra")
     if extra is not None and not isinstance(extra, str):
         raise ValueError("system_extra must be a string or null")
-    generator = StubGenerator(scripts)
     records = run_episodes(
         specs,
         generator,
@@ -77,8 +98,9 @@ def _run(args: argparse.Namespace) -> int:
         "model": generator.name,
         "system_extra": extra,
         "episode_paths": [str(path) for path in paths],
-        "stub_script": str(script_path),
-        "stub_script_sha256": hashlib.sha256(script_bytes).hexdigest(),
+        "model_key": args.model if args.generator == "hf" else None,
+        "inference": {"batch_size": batch_size},
+        **script_info,
     }
     run_dir = new_run_dir(args.arm, generator.name, args.split, root=args.root)
     (run_dir / "config.yaml").write_text(
@@ -138,6 +160,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     run.add_argument("--generator", choices=("stub", "hf"), required=True)
     run.add_argument("--stub-script")
+    run.add_argument("--batch-size", type=int, help="HF microbatch size")
     run.add_argument(
         "--model", help="Model key from configs/models.yaml (HF generator)"
     )
@@ -158,7 +181,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "run-episodes":
         try:
             return _run(args)
-        except (ValueError, OSError, KeyError, yaml.YAMLError) as error:
+        except (ValueError, OSError, KeyError, ImportError, yaml.YAMLError) as error:
             parser.error(str(error))
     print("not implemented yet")
     return 0
