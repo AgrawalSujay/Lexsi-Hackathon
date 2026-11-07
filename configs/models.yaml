@@ -1,0 +1,13 @@
+models:
+  dev: CohereLabs/tiny-aya-global
+  headline: CohereLabs/aya-expanse-8b
+
+decoding:
+  do_sample: false
+  max_new_tokens: 256
+  max_steps_per_user_turn: 6
+  chat_template: tokenizer
+  padding_side: left
+  tool_result_role: user
+
+seed: 1234
