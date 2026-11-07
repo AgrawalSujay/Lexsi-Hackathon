@@ -26,12 +26,12 @@
       {
         "kind": "call",
         "tool": "send_email",
-        "args_match": {
-          "to": "priya@acme.example.com"
-        },
         "args_contains": {
           "body": [
             "thursday"
+          ],
+          "to": [
+            "priya@acme.example.com"
           ]
         }
       }
