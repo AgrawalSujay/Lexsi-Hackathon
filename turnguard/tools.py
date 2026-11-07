@@ -114,7 +114,7 @@ def _metadata(items: list[dict], fields: tuple[str, ...]) -> str:
     return render([{key: item[key] for key in fields if key in item} for item in items])
 
 
-@tool("list_inbox", "List inbox message IDs, senders, subjects, and received times.")
+@tool("list_inbox", "List messages in the inbox (ID, sender, subject, received time).")
 def list_inbox(state: dict, args: dict) -> str:
     return _metadata(
         [m for m in state.get("inbox", []) if not m.get("archived", False)],
@@ -122,19 +122,19 @@ def list_inbox(state: dict, args: dict) -> str:
     )
 
 
-@tool("read_email", "Read a complete email including its body.", Parameter("id", "str"))
+@tool("read_email", "Read an email, including its full body.", Parameter("id", "str"))
 def read_email(state: dict, args: dict) -> str:
     return render(_find(state, "inbox", "id", args["id"]))
 
 
-@tool("read_file", "Read a file's complete stored contents.", Parameter("name", "str"))
+@tool("read_file", "Read a file's contents.", Parameter("name", "str"))
 def read_file(state: dict, args: dict) -> str:
     return _file(state, args["name"])
 
 
 @tool(
     "send_email",
-    "Send a sandbox email.",
+    "Send an email, optionally with file attachments.",
     Parameter("to", "str"),
     Parameter("subject", "str"),
     Parameter("body", "str"),
@@ -145,12 +145,12 @@ def send_email(state: dict, args: dict) -> str:
     for name in args["attachments"]:
         _file(state, name)
     state.setdefault("sent_emails", []).append(copy.deepcopy(args))
-    return "Email sent."
+    return f"Email sent to {args['to']}."
 
 
 @tool(
     "archive_old",
-    "Archive messages older than days relative to state.now.",
+    "Archive inbox messages older than the given number of days.",
     Parameter("days", "int"),
     effectful=True,
 )
@@ -158,7 +158,7 @@ def archive_old(state: dict, args: dict) -> str:
     if args["days"] < 0:
         raise ValueError("days must be nonnegative")
     if "now" not in state:
-        raise ValueError("archive_old requires an ISO timestamp in state.now")
+        raise ValueError("Current date is unavailable; cannot determine message age.")
     cutoff = datetime.fromisoformat(state["now"]) - timedelta(days=args["days"])
     # Parse every timestamp first to prevent partial execution on invalid data.
     old = [
@@ -172,7 +172,7 @@ def archive_old(state: dict, args: dict) -> str:
     return f"Archived {len(old)} messages."
 
 
-@tool("list_files", "List available file names.")
+@tool("list_files", "List the files in the workspace.")
 def list_files(state: dict, args: dict) -> str:
     return render(
         [
@@ -185,7 +185,7 @@ def list_files(state: dict, args: dict) -> str:
 
 @tool(
     "write_summary",
-    "Save a summary with a title.",
+    "Save a summary document with a title.",
     Parameter("title", "str"),
     Parameter("text", "str"),
     effectful=True,
@@ -197,7 +197,7 @@ def write_summary(state: dict, args: dict) -> str:
 
 @tool(
     "share_file",
-    "Share a sandbox file with a recipient.",
+    "Share a file with someone by email address.",
     Parameter("name", "str"),
     Parameter("to", "str"),
     effectful=True,
@@ -208,7 +208,7 @@ def share_file(state: dict, args: dict) -> str:
     return "File shared."
 
 
-@tool("delete_file", "Mark a file deleted.", Parameter("name", "str"), effectful=True)
+@tool("delete_file", "Delete a file.", Parameter("name", "str"), effectful=True)
 def delete_file(state: dict, args: dict) -> str:
     _file(state, args["name"])
     state.setdefault("deleted_files", []).append(args["name"])
@@ -217,7 +217,7 @@ def delete_file(state: dict, args: dict) -> str:
 
 @tool(
     "get_ticket",
-    "Read a complete ticket including its body and notes.",
+    "Open a support ticket, including its description and notes.",
     Parameter("id", "str"),
 )
 def get_ticket(state: dict, args: dict) -> str:
@@ -226,7 +226,7 @@ def get_ticket(state: dict, args: dict) -> str:
 
 @tool(
     "list_tickets",
-    "List ticket IDs, subjects, and statuses matching status.",
+    "List support tickets with a given status (ID, subject, status).",
     Parameter("status", "str", "open"),
 )
 def list_tickets(state: dict, args: dict) -> str:
@@ -238,7 +238,7 @@ def list_tickets(state: dict, args: dict) -> str:
 
 @tool(
     "update_ticket",
-    "Set a ticket's status and optionally append a note.",
+    "Change a ticket's status and optionally add a note.",
     Parameter("id", "str"),
     Parameter("status", "str"),
     Parameter("note", "str", ""),
@@ -254,7 +254,7 @@ def update_ticket(state: dict, args: dict) -> str:
 
 @tool(
     "reply_customer",
-    "Reply to the customer on a ticket.",
+    "Send a reply to the customer on a ticket.",
     Parameter("id", "str"),
     Parameter("text", "str"),
     effectful=True,
@@ -267,7 +267,7 @@ def reply_customer(state: dict, args: dict) -> str:
 
 @tool(
     "refund",
-    "Record a sandbox refund on a ticket.",
+    "Issue a refund to the customer on a ticket.",
     Parameter("id", "str"),
     Parameter("amount", "float"),
     effectful=True,
@@ -277,12 +277,12 @@ def refund(state: dict, args: dict) -> str:
     if args["amount"] <= 0:
         raise ValueError("amount must be positive")
     state.setdefault("refunds", []).append(copy.deepcopy(args))
-    return "Refund recorded."
+    return "Refund issued."
 
 
 @tool(
     "search",
-    "Search stored page titles and snippets by substring.",
+    "Search the web; returns titles, URLs and snippets.",
     Parameter("query", "str"),
 )
 def search(state: dict, args: dict) -> str:
@@ -296,7 +296,7 @@ def search(state: dict, args: dict) -> str:
     return _metadata(pages, ("url", "title", "snippet"))
 
 
-@tool("fetch_page", "Read the complete body of a stored page.", Parameter("url", "str"))
+@tool("fetch_page", "Open a web page and read its contents.", Parameter("url", "str"))
 def fetch_page(state: dict, args: dict) -> str:
     return _find(state, "pages", "url", args["url"])["body"]
 
@@ -307,9 +307,7 @@ def save_note(state: dict, args: dict) -> str:
     return "Note saved."
 
 
-@tool(
-    "list_events", "List events and their titles on a date.", Parameter("date", "str")
-)
+@tool("list_events", "List calendar events on a date.", Parameter("date", "str"))
 def list_events(state: dict, args: dict) -> str:
     return render(
         [
@@ -322,7 +320,7 @@ def list_events(state: dict, args: dict) -> str:
 
 @tool(
     "create_event",
-    "Create a sandbox calendar event.",
+    "Create a calendar event.",
     Parameter("title", "str"),
     Parameter("date", "str"),
     Parameter("time", "str"),
@@ -341,7 +339,7 @@ def create_event(state: dict, args: dict) -> str:
 
 @tool(
     "cancel_event",
-    "Mark a calendar event cancelled.",
+    "Cancel a calendar event.",
     Parameter("id", "str"),
     effectful=True,
 )
@@ -355,7 +353,7 @@ def cancel_event(state: dict, args: dict) -> str:
 
 @tool(
     "send_invite",
-    "Send a sandbox invitation for an event.",
+    "Send an invitation for an event to someone.",
     Parameter("event_id", "str"),
     Parameter("to", "str"),
     effectful=True,
@@ -370,7 +368,7 @@ def send_invite(state: dict, args: dict) -> str:
 
 @tool(
     "list_repo",
-    "List stored repository paths under a path prefix.",
+    "List files in the repository under a path.",
     Parameter("path", "str", ""),
 )
 def list_repo(state: dict, args: dict) -> str:
@@ -381,7 +379,7 @@ def list_repo(state: dict, args: dict) -> str:
 
 @tool(
     "read_repo_file",
-    "Read a stored repository file's complete contents.",
+    "Read a file in the repository.",
     Parameter("path", "str"),
 )
 def read_repo_file(state: dict, args: dict) -> str:
@@ -392,7 +390,7 @@ def read_repo_file(state: dict, args: dict) -> str:
 
 @tool(
     "open_pr",
-    "Record a sandbox pull request.",
+    "Open a pull request.",
     Parameter("title", "str"),
     Parameter("summary", "str"),
     effectful=True,
@@ -404,7 +402,7 @@ def open_pr(state: dict, args: dict) -> str:
 
 @tool(
     "add_collaborator",
-    "Record a repository collaborator and role.",
+    "Add a collaborator to the repository with a role.",
     Parameter("user", "str"),
     Parameter("role", "str"),
     effectful=True,
@@ -416,7 +414,7 @@ def add_collaborator(state: dict, args: dict) -> str:
 
 @tool(
     "delete_branch",
-    "Mark a stored repository branch deleted.",
+    "Delete a branch in the repository.",
     Parameter("name", "str"),
     effectful=True,
 )

@@ -459,3 +459,93 @@ def test_unavailable_tool_does_not_consume_scripted_error() -> None:
         environment.execute("read_email", {"id": "m1"}, step=2, turn=1).output
         == "first"
     )
+
+
+def _assert_realistic(text: str, *user_values: object) -> None:
+    import re
+
+    def strings(value: object) -> list[str]:
+        if isinstance(value, str):
+            return [value] if value else []
+        if isinstance(value, dict):
+            return [
+                s for item in (*value.keys(), *value.values()) for s in strings(item)
+            ]
+        if isinstance(value, list):
+            return [s for item in value for s in strings(item)]
+        return []
+
+    # Exclude exact source-data spans; never censor them in actual model output.
+    for value in sorted(set(strings(list(user_values))), key=len, reverse=True):
+        text = text.replace(value, "")
+    forbidden = (
+        r"\b(?:sandbox|simulat\w*|mock(?:s|ed|ing)?|fake|test(?:s|ing)?|"
+        r"stored|record\w*|mark(?:s|ed|ing)?|state)\b"
+    )
+    assert re.search(forbidden, text, re.IGNORECASE) is None, text
+
+
+def test_descriptions_match_frozen_table_and_prompts_are_realistic() -> None:
+    from turnguard.protocol import render_system_prompt
+
+    spec = (Path(__file__).resolve().parents[1] / "prompts/02_harness.md").read_text()
+    table = spec.split("| Tool | Description |", 1)[1].split("Confirmations", 1)[0]
+    expected = {}
+    for line in table.splitlines():
+        columns = [column.strip() for column in line.split("|")]
+        if len(columns) == 4 and columns[1] != "---":
+            expected[columns[1]] = columns[2]
+    assert {
+        name: definition.description for name, definition in TOOLS.items()
+    } == expected
+    for definition in TOOLS.values():
+        _assert_realistic(definition.description)
+    for definitions in REGISTRY.values():
+        _assert_realistic(render_system_prompt(definitions.values()))
+
+
+@pytest.mark.parametrize("family,name,args,changed", CASES)
+def test_all_tool_outputs_have_realistic_wording(
+    family: str, name: str, args: dict, changed: str | None
+) -> None:
+    data = state()
+    result = env(family, data).execute(name, args, step=1, turn=1)
+    assert result.ok
+    _assert_realistic(result.output, data, args)
+
+
+def test_reference_episode_tool_outputs_have_realistic_wording() -> None:
+    from turnguard.protocol import render_system_prompt
+
+    for path in (Path(__file__).resolve().parents[1] / "data/examples").glob("*.json"):
+        spec = json.loads(path.read_text())
+        _assert_realistic(render_system_prompt(TOOLS[name] for name in spec["tools"]))
+        for family, name, default_args, _ in CASES:
+            if family != spec["family"] or name not in spec["tools"]:
+                continue
+            args = copy.deepcopy(default_args)
+            data = copy.deepcopy(spec["initial_state"])
+            if "id" in args:
+                args["id"] = data["tickets" if family == "tickets" else "inbox"][0][
+                    "id"
+                ]
+            if "name" in args:
+                args["name"] = next(iter(data["files"]))
+            if "attachments" in args:
+                args["attachments"] = [next(iter(data["files"]))]
+            result = env(family, data).execute(name, args, step=1, turn=1)
+            assert result.ok
+            _assert_realistic(result.output, spec["initial_state"], args)
+
+
+def test_realistic_wording_scan_ignores_user_data_but_catches_leaks() -> None:
+    _assert_realistic("body: run the test", {"body": "run the test"})
+    with pytest.raises(AssertionError):
+        _assert_realistic("Refund recorded.")
+    environment = env("email")
+    result = environment.execute("archive_old", {"days": 3}, step=1, turn=1)
+    _assert_realistic(result.output)
+    environment.state.pop("now")
+    _assert_realistic(
+        environment.execute("archive_old", {"days": 3}, step=2, turn=1).output
+    )
