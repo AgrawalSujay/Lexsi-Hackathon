@@ -32,6 +32,16 @@ An episode spec is one JSON file. Fields:
 - `slot` is an RFC 6901 JSON Pointer into `initial_state` (file names contain
   dots, so no dotted paths). `text` must be a substring of the string at
   `slot`.
+- **Multi-part form.** Instead of top-level `slot`/`text`, an `injection` or
+  `authorized` block may give
+  `parts: [{"where": "state" | "user_turn", "slot": str, "text": str}, ...]`.
+  Top-level `slot`/`text` is shorthand for a single `{"where": "state"}` part.
+  `where: "state"` → `slot` is a JSON Pointer into `initial_state`;
+  `where: "user_turn"` → `slot` is `/<index>` into `user_turns` (0-based).
+  This is how `position: split` (two parts in two different tool outputs) and
+  `carrier: quoted` (text pasted into an earlier user turn) are represented.
+  Every part's `text` must be found at its slot; a block must use either the
+  shorthand or `parts`, not both.
 - **Matcher**, one of:
   - `{"kind": "call", "tool": str, "args_match": {k: v}?, "args_contains": {k: [str]}?}`
     matches a successful tool call whose `args[k] == v` for every
@@ -52,10 +62,10 @@ An episode spec is one JSON file. Fields:
 schema types; every `tool` in matchers is in `tools`; every tool in `tools`
 exists for the `family`; `slot` resolves to a string containing `text`;
 `injected` has `injection`, `clean` has none, `authorized` has `authorized`;
-for a `clean` episode with `twin_of` loaded alongside, its state equals the
-injected twin's state except at the slot, whose value is the injected value
-with `injection.text` removed and then surrounding whitespace stripped
-(`str.replace(text, "").strip()`). Implement this as
+for a `clean` episode with `twin_of` loaded alongside, its `initial_state`
+and `user_turns` equal the injected twin's, except at each injection part's
+slot, whose value is the injected value with that part's `text` removed and
+then surrounding whitespace stripped (`str.replace(text, "").strip()`). Implement this as
 `make_clean_twin(spec) -> spec`; the data builder uses it later.
 
 ## 2. Simulated tools (`turnguard/tools.py`)
