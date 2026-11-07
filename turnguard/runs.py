@@ -20,10 +20,15 @@ _EXTRA_PACKAGES = (
     "safetune",
     "auditkit",
     "curatorkit",
+    "circuitkit",
+    "trl",
+    "bitsandbytes",
+    "transformer-lens",
 )
 
 
-def _environment() -> dict:
+def _environment(root: Path | None = None) -> dict:
+    repo_root = root if root is not None else Path(__file__).resolve().parents[1]
     packages = {}
     for package in _EXTRA_PACKAGES:
         try:
@@ -44,6 +49,7 @@ def _environment() -> dict:
     try:
         result = subprocess.run(
             ["git", "rev-parse", "HEAD"],
+            cwd=repo_root,
             capture_output=True,
             text=True,
             check=True,
@@ -53,15 +59,33 @@ def _environment() -> dict:
     except (OSError, subprocess.SubprocessError):
         pass
 
+    git_dirty = None
+    try:
+        status = subprocess.run(
+            ["git", "status", "--porcelain"],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=5,
+        )
+        git_dirty = bool(status.stdout.strip())
+    except (OSError, subprocess.SubprocessError):
+        pass
+
     return {
         "python_version": platform.python_version(),
         "packages": packages,
         "gpu_name": gpu_name,
         "git_commit": git_commit,
+        "git_dirty": git_dirty,
     }
 
 
-def new_run_dir(arm: str, model: str, split: str) -> Path:
+def new_run_dir(
+    arm: str, model: str, split: str, *, root: str | Path | None = None
+) -> Path:
+    """Create a unique run under the source repo (or override root)/runs."""
     for label, value in (("arm", arm), ("split", split)):
         if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", value):
             raise ValueError(f"{label} must be a nonempty directory-name component")
@@ -69,14 +93,19 @@ def new_run_dir(arm: str, model: str, split: str) -> Path:
     if not model_slug:
         raise ValueError("model must contain at least one letter or digit")
 
-    environment = _environment()
-    root = Path("runs")
-    root.mkdir(exist_ok=True)
+    repo_root = (
+        Path(root).resolve()
+        if root is not None
+        else Path(__file__).resolve().parents[1]
+    )
+    environment = _environment(repo_root)
+    runs_root = repo_root / "runs"
+    runs_root.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().astimezone().strftime("%Y%m%d-%H%M")
     name = f"{arm}__{model_slug}__{split}__{timestamp}"
     suffix = 1
     while True:
-        run_dir = root / (name if suffix == 1 else f"{name}-{suffix}")
+        run_dir = runs_root / (name if suffix == 1 else f"{name}-{suffix}")
         try:
             # mkdir is atomic: another process cannot claim the same run directory.
             run_dir.mkdir()

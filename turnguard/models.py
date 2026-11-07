@@ -22,7 +22,9 @@ class StubGenerator:
     name: str = "stub"
 
     def __init__(self, scripts: Mapping[str, list[str]]) -> None:
-        self._scripts = {episode_id: list(script) for episode_id, script in scripts.items()}
+        self._scripts = {
+            episode_id: list(script) for episode_id, script in scripts.items()
+        }
         self._positions = dict.fromkeys(self._scripts, 0)
 
     def generate(self, batch: list[GenRequest]) -> list[str]:

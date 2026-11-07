@@ -11,9 +11,7 @@ def request(episode_id: str, step: int = 1) -> GenRequest:
 
 class StubGeneratorTests(unittest.TestCase):
     def test_scripts_advance_independently_in_batch_order(self) -> None:
-        generator: Generator = StubGenerator(
-            {"a": ["a1", "a2"], "b": ["b1", "b2"]}
-        )
+        generator: Generator = StubGenerator({"a": ["a1", "a2"], "b": ["b1", "b2"]})
         self.assertEqual(generator.generate([request("b"), request("a")]), ["b1", "a1"])
         self.assertEqual(
             generator.generate([request("a", 2), request("b", 2)]), ["a2", "b2"]

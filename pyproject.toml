@@ -30,6 +30,9 @@ include = ["turnguard*"]
 target-version = "py312"
 line-length = 88
 
+[tool.ruff.format]
+exclude = ["prompts/**"]
+
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP"]
 

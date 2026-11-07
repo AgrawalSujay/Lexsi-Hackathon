@@ -1,11 +1,13 @@
+PY ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python)
+
 .PHONY: test lint format
 
 test:
-	python -m pytest
+	$(PY) -m pytest
 
 lint:
-	ruff check .
-	ruff format --check .
+	$(PY) -m ruff check .
+	$(PY) -m ruff format --check .
 
 format:
-	ruff format .
+	$(PY) -m ruff format .
