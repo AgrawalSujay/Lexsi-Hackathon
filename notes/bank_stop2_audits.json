@@ -1,0 +1,328 @@
+{
+  "basis": "actual CPU stub builds, seed 1234, limit 5 injected bases per split",
+  "splits": {
+    "dev": {
+      "authorized_coverage": {
+        "by_carrier": {
+          "body": 104,
+          "metadata": 106,
+          "quoted": 132
+        },
+        "by_delegation_mode": {
+          "append": 228,
+          "task": 114
+        },
+        "by_filler_variant": {
+          "0": 117,
+          "1": 117,
+          "2": 108
+        },
+        "by_instruction_language": {
+          "en": 113,
+          "hi": 121,
+          "hinglish": 108
+        },
+        "by_language": {
+          "en": 115,
+          "hi": 114,
+          "hinglish": 113
+        }
+      },
+      "counts": {
+        "authorized": 342,
+        "clean": 5,
+        "injected": 5
+      },
+      "cue_audit": {
+        "by_type": {
+          "authorized": {
+            "delegation_known": 342,
+            "delegation_unknown": 0,
+            "identifiers_n": 225,
+            "n": 342,
+            "shares": {
+              "assistant_in_planted_text": 0.5380116959064327,
+              "instruction_language_mismatch": 0.6783625730994152,
+              "user_turn_delegation": 1.0
+            },
+            "tld_counts": {
+              ".invalid": 72,
+              "example.*": 153,
+              "other": 0
+            },
+            "tld_shares": {
+              ".invalid": 0.32,
+              "example.*": 0.68,
+              "other": 0.0
+            }
+          },
+          "clean": {
+            "delegation_known": 5,
+            "delegation_unknown": 0,
+            "identifiers_n": 0,
+            "n": 5,
+            "shares": {
+              "assistant_in_planted_text": 0.0,
+              "instruction_language_mismatch": 0.0,
+              "user_turn_delegation": 0.4
+            },
+            "tld_counts": {
+              ".invalid": 0,
+              "example.*": 0,
+              "other": 0
+            },
+            "tld_shares": {
+              ".invalid": null,
+              "example.*": null,
+              "other": null
+            }
+          },
+          "injected": {
+            "delegation_known": 5,
+            "delegation_unknown": 0,
+            "identifiers_n": 4,
+            "n": 5,
+            "shares": {
+              "assistant_in_planted_text": 0.4,
+              "instruction_language_mismatch": 0.4,
+              "user_turn_delegation": 0.4
+            },
+            "tld_counts": {
+              ".invalid": 2,
+              "example.*": 2,
+              "other": 0
+            },
+            "tld_shares": {
+              ".invalid": 0.5,
+              "example.*": 0.5,
+              "other": 0.0
+            }
+          }
+        },
+        "definitions": {
+          "shares": "Episode shares; delegation uses delegation_known (legacy builds may be unknown).",
+          "tld_shares": "Distinct planted/target identifiers per episode; denominator identifiers_n."
+        },
+        "warnings": []
+      },
+      "rejected": 9,
+      "rejection_reasons": {
+        "duplicate_after_merge": 9
+      }
+    },
+    "test": {
+      "authorized_coverage": {
+        "by_carrier": {
+          "body": 99,
+          "metadata": 36,
+          "quoted": 115
+        },
+        "by_delegation_mode": {
+          "append": 169,
+          "task": 81
+        },
+        "by_filler_variant": {
+          "0": 95,
+          "1": 76,
+          "2": 79
+        },
+        "by_instruction_language": {
+          "en": 83,
+          "hi": 92,
+          "hinglish": 75
+        },
+        "by_language": {
+          "en": 86,
+          "hi": 80,
+          "hinglish": 84
+        }
+      },
+      "counts": {
+        "authorized": 250,
+        "clean": 5,
+        "injected": 5
+      },
+      "cue_audit": {
+        "by_type": {
+          "authorized": {
+            "delegation_known": 250,
+            "delegation_unknown": 0,
+            "identifiers_n": 93,
+            "n": 250,
+            "shares": {
+              "assistant_in_planted_text": 0.5,
+              "instruction_language_mismatch": 0.724,
+              "user_turn_delegation": 1.0
+            },
+            "tld_counts": {
+              ".invalid": 30,
+              "example.*": 63,
+              "other": 0
+            },
+            "tld_shares": {
+              ".invalid": 0.3225806451612903,
+              "example.*": 0.6774193548387096,
+              "other": 0.0
+            }
+          },
+          "clean": {
+            "delegation_known": 5,
+            "delegation_unknown": 0,
+            "identifiers_n": 0,
+            "n": 5,
+            "shares": {
+              "assistant_in_planted_text": 0.0,
+              "instruction_language_mismatch": 0.0,
+              "user_turn_delegation": 0.4
+            },
+            "tld_counts": {
+              ".invalid": 0,
+              "example.*": 0,
+              "other": 0
+            },
+            "tld_shares": {
+              ".invalid": null,
+              "example.*": null,
+              "other": null
+            }
+          },
+          "injected": {
+            "delegation_known": 5,
+            "delegation_unknown": 0,
+            "identifiers_n": 4,
+            "n": 5,
+            "shares": {
+              "assistant_in_planted_text": 0.6,
+              "instruction_language_mismatch": 0.8,
+              "user_turn_delegation": 0.4
+            },
+            "tld_counts": {
+              ".invalid": 2,
+              "example.*": 2,
+              "other": 0
+            },
+            "tld_shares": {
+              ".invalid": 0.5,
+              "example.*": 0.5,
+              "other": 0.0
+            }
+          }
+        },
+        "definitions": {
+          "shares": "Episode shares; delegation uses delegation_known (legacy builds may be unknown).",
+          "tld_shares": "Distinct planted/target identifiers per episode; denominator identifiers_n."
+        },
+        "warnings": []
+      },
+      "rejected": 0,
+      "rejection_reasons": {}
+    },
+    "train": {
+      "authorized_coverage": {
+        "by_carrier": {
+          "body": 423,
+          "metadata": 297,
+          "quoted": 450
+        },
+        "by_delegation_mode": {
+          "append": 819,
+          "task": 351
+        },
+        "by_filler_variant": {
+          "0": 390,
+          "1": 390,
+          "2": 390
+        },
+        "by_instruction_language": {
+          "en": 358,
+          "hi": 406,
+          "hinglish": 406
+        },
+        "by_language": {
+          "en": 390,
+          "hi": 390,
+          "hinglish": 390
+        }
+      },
+      "counts": {
+        "authorized": 1170,
+        "clean": 5,
+        "injected": 5
+      },
+      "cue_audit": {
+        "by_type": {
+          "authorized": {
+            "delegation_known": 1170,
+            "delegation_unknown": 0,
+            "identifiers_n": 792,
+            "n": 1170,
+            "shares": {
+              "assistant_in_planted_text": 0.5,
+              "instruction_language_mismatch": 0.6726495726495727,
+              "user_turn_delegation": 1.0
+            },
+            "tld_counts": {
+              ".invalid": 234,
+              "example.*": 558,
+              "other": 0
+            },
+            "tld_shares": {
+              ".invalid": 0.29545454545454547,
+              "example.*": 0.7045454545454546,
+              "other": 0.0
+            }
+          },
+          "clean": {
+            "delegation_known": 5,
+            "delegation_unknown": 0,
+            "identifiers_n": 0,
+            "n": 5,
+            "shares": {
+              "assistant_in_planted_text": 0.0,
+              "instruction_language_mismatch": 0.0,
+              "user_turn_delegation": 0.4
+            },
+            "tld_counts": {
+              ".invalid": 0,
+              "example.*": 0,
+              "other": 0
+            },
+            "tld_shares": {
+              ".invalid": null,
+              "example.*": null,
+              "other": null
+            }
+          },
+          "injected": {
+            "delegation_known": 5,
+            "delegation_unknown": 0,
+            "identifiers_n": 4,
+            "n": 5,
+            "shares": {
+              "assistant_in_planted_text": 0.4,
+              "instruction_language_mismatch": 0.4,
+              "user_turn_delegation": 0.4
+            },
+            "tld_counts": {
+              ".invalid": 1,
+              "example.*": 3,
+              "other": 0
+            },
+            "tld_shares": {
+              ".invalid": 0.25,
+              "example.*": 0.75,
+              "other": 0.0
+            }
+          }
+        },
+        "definitions": {
+          "shares": "Episode shares; delegation uses delegation_known (legacy builds may be unknown).",
+          "tld_shares": "Distinct planted/target identifiers per episode; denominator identifiers_n."
+        },
+        "warnings": []
+      },
+      "rejected": 0,
+      "rejection_reasons": {}
+    }
+  }
+}

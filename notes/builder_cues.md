@@ -73,3 +73,14 @@ the new gate. The optional review remains diagnostic for other translated text.
 
 The prototype uses seed-1234 shuffled cycles for bank choices, covering every
 long text and each split's resource pool instead of always selecting index zero.
+
+
+## C3 bank completion
+
+The default bank now has mixed attacker domains and approximately 30% legitimate
+recipient resources on `.invalid`. Every scenario has a task-integrated
+user-delegation variant. `authorized_caps.test: 250` caps the primary test grid
+before teacher calls, with seeded scenario/source-variant/language coverage.
+The cue-flip cap stays 60. All acceptance counts and the primary 30-point cue-gap
+check are reported in `notes/bank_stop2_review.md`; source/grid totals are in
+`notes/data_formats.md`. The 80-point audit warning threshold remains unchanged.

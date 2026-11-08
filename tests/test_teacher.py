@@ -269,7 +269,7 @@ def test_real_teacher_build_fake_transport_all_languages_and_cached_twins(
     report = builder.build_data(
         "dev", teacher="litellm", limit=5, root=data_root, backtranslate=True
     )
-    assert report["counts"] == {"injected": 5, "clean": 5, "authorized": 54}
+    assert report["counts"] == {"injected": 5, "clean": 5, "authorized": 162}
     assert report["rejected"] == 0
     output = data_root / "data/v1/dev"
     before = (output / "episodes.jsonl").read_bytes()
@@ -290,7 +290,7 @@ def test_real_teacher_build_fake_transport_all_languages_and_cached_twins(
             if e["episode_type"] == "authorized" and e["meta"]["scenario"] == scenario
         ]
         # One per (conversation language x filler version).
-        assert len(authorized) == 27
+        assert len(authorized) == 81
         assert {e["meta"]["filler_block"] for e in authorized} == {
             f"dev-{scenario}-v{v}-{lang}"
             for v in range(3)

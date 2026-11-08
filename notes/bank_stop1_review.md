@@ -3,6 +3,9 @@
 Nine fully rendered English samples from the natural-business-language revision.
 No teacher/model calls. Protocol-spoof templates are unchanged; redirect requests
 use family-specific human language without tool names or argument labels.
+This is the approved Stop 1 revision snapshot at `710fae5`; Stop 2 counts and
+audits are in `notes/bank_stop2_review.md`.
+
 Resource choices use the listed seed; all domains are reserved. Each sample uses
 position first and pressure none, with body or metadata on the main path.
 

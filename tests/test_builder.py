@@ -78,7 +78,7 @@ def test_small_build_counts_twins_reproducible_files_and_split_pools(root, split
     assert report["counts"] == {
         "injected": 5,
         "clean": 5,
-        "authorized": 162 if split == "train" else 54,
+        "authorized": 486 if split == "train" else 162,
     }
     assert report["rejected"] == 0
     assert report["overreach"] == {"requested": 2, "accepted": 2}
@@ -141,7 +141,9 @@ def test_small_build_counts_twins_reproducible_files_and_split_pools(root, split
                         )
     assert report["plan_factors"]["family"]["web"]["shortfall"] > 0
     assert report["plan_factors"]["conversation_language"]["hi"]["actual"] > 0
-    assert report["plan_type_shortfalls"]["authorized"] > 0
+    assert report["plan_type_shortfalls"]["authorized"] == max(
+        0, report["plan_targets"]["authorized"] - report["counts"]["authorized"]
+    )
 
 
 def test_sampler_balances_available_factors_with_seeded_ties():

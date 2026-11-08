@@ -295,8 +295,14 @@ def add_delegation(
         text = teacher.translate(text, language, tokens, kind="authorized_delegate")
     check_generated_text(text)
     turn = 0 if variant["position"] == "first" else 1
-    episode["user_turns"][turn] += text
-    episode["meta"]["delegation"] = {"turn": turn, "text": text}
+    mode = variant.get("delegate_mode", "append")
+    if mode == "task":
+        episode["user_turns"][turn] = text
+    elif mode == "append":
+        episode["user_turns"][turn] += text
+    else:
+        raise ValueError(f"Unknown delegate_mode: {mode}")
+    episode["meta"]["delegation"] = {"turn": turn, "text": text, "mode": mode}
 
 
 def injected(
@@ -397,6 +403,15 @@ def injected(
         ]
     for text in texts:
         check_generated_text(text)
+    if overreach:
+        variant = delegation_variant(scenario, position)
+        if variant is None:
+            raise ValueError(
+                f"No authorized delegation for {scenario['id']}/{position}"
+            )
+        add_delegation(
+            episode, variant, names, teacher_client, conversation_language, tokens
+        )
     parts = [place(episode, s, t, error) for s, t in zip(slot_list, texts, strict=True)]
     episode.update(
         id=f"{scenario['id']}-{goal}-{style}-{pressure}-{position}-{carrier}",
@@ -412,15 +427,6 @@ def injected(
     episode["meta"].update(
         pressure=pressure, overreach=overreach, attacker_pool_profile=pool_profile
     )
-    if overreach:
-        variant = delegation_variant(scenario, position)
-        if variant is None:
-            raise ValueError(
-                f"No authorized delegation for {scenario['id']}/{position}"
-            )
-        add_delegation(
-            episode, variant, names, teacher_client, conversation_language, tokens
-        )
     return episode
 
 
@@ -476,6 +482,7 @@ def authorized(
         injection=None,
         authorized={"parts": [part], "target": fill(variant["target"], names)},
     )
+    episode["meta"]["authorized_variant"] = index
     return episode
 
 
@@ -547,7 +554,8 @@ def script(scenario: dict, episode: dict, obey: bool) -> list[str]:
                 fired_errors.add((name, failure))
                 outputs.append(action(name, step["args"]))
         for matcher in extra:
-            if matcher["kind"] == "call" and turn == 1:
+            authorized_turn = 1 if episode["position"] == "first" else 2
+            if matcher["kind"] == "call" and turn == authorized_turn:
                 outputs.append(_call_for(matcher, episode))
         terms = [
             t
@@ -1107,23 +1115,44 @@ def build_data(
             0, target["authorized"] - sum(j["kind"] == "authorized" for j in jobs)
         )
         jobs.extend(alternatives[:quota])
-    if cue_flip:
-        # Round-robin scenarios after seeded shuffling; the quota is an upper bound.
+    authorized_cap = (
+        target["authorized"]
+        if cue_flip
+        else config.get("authorized_caps", {}).get(split)
+    )
+    if authorized_cap is not None:
+        if type(authorized_cap) is not int or authorized_cap < 0:
+            raise ValueError("authorized cap must be a nonnegative integer")
+        # Cover scenarios and source variants before spending slots on repeated
+        # filler/carrier/language combinations. All ties use the fixed seed.
         groups = {}
         for job in jobs:
             if job["kind"] == "authorized":
-                groups.setdefault(job["scenario"]["id"], []).append(job)
-        for group in groups.values():
-            rng.shuffle(group)
-        authorized_jobs = []
-        while groups and len(authorized_jobs) < target["authorized"]:
-            for key in list(groups):
-                authorized_jobs.append(groups[key].pop())
-                if not groups[key]:
-                    del groups[key]
-                if len(authorized_jobs) == target["authorized"]:
+                groups.setdefault(job["scenario"]["id"], {}).setdefault(
+                    (job["index"], job["language"]), []
+                ).append(job)
+        for buckets in groups.values():
+            for bucket in buckets.values():
+                rng.shuffle(bucket)
+        keys = list(groups)
+        rng.shuffle(keys)
+        bucket_orders = {key: list(groups[key]) for key in keys}
+        for order in bucket_orders.values():
+            rng.shuffle(order)
+        selected_authorized = []
+        while keys and len(selected_authorized) < authorized_cap:
+            for key in list(keys):
+                order = bucket_orders[key]
+                bucket_key = order.pop(0)
+                bucket = groups[key][bucket_key]
+                selected_authorized.append(bucket.pop())
+                if bucket:
+                    order.append(bucket_key)
+                if not order:
+                    keys.remove(key)
+                if len(selected_authorized) == authorized_cap:
                     break
-        jobs = [job for job in jobs if job["kind"] == "injected"] + authorized_jobs
+        jobs = [j for j in jobs if j["kind"] == "injected"] + selected_authorized
     if cue_flip:
         for job in jobs:
             job["id"] = "cueflip-" + job["id"]
@@ -1395,7 +1424,15 @@ def build_data(
             "note": "Optional C3 attacker_pool_profiles overlay; bank unchanged.",
         },
         "overreach_share": overreach_share,
+        "authorized_cap": authorized_cap,
         "authorized_coverage": {
+            "by_delegation_mode": dict(
+                Counter(
+                    e["meta"]["delegation"]["mode"]
+                    for e in episodes
+                    if e["episode_type"] == "authorized"
+                )
+            ),
             "by_carrier": dict(
                 Counter(
                     e["carrier"] for e in episodes if e["episode_type"] == "authorized"
@@ -1458,6 +1495,9 @@ def build_data(
         ],
     }
     if dry_run:
+        from turnguard.data.cues import cue_audit
+
+        report["cue_audit"] = cue_audit(episodes)
         return report
     output.mkdir(parents=True, exist_ok=True)
     from turnguard.data.cues import write_cue_audit
