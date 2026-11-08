@@ -177,9 +177,44 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument(
         "--root", help="Override the repository root for output under <root>/runs"
     )
-    for name in ("build-data", "freeze", "train", "eval-external", "report"):
+    build = commands.add_parser("build-data", help="Build validated episode specs")
+    build.add_argument("--split", choices=("train", "dev", "test"), required=True)
+    build.add_argument("--teacher", choices=("stub",), required=True)
+    build.add_argument(
+        "--limit", type=int, help="Number of injected bases (twins are extra)"
+    )
+    build.add_argument("--config", type=Path, help="Data builder YAML configuration")
+    for name in ("freeze", "train", "eval-external", "report"):
         commands.add_parser(name, help="not implemented yet")
     args = parser.parse_args(argv)
+    if args.command == "build-data":
+        from turnguard.data.builder import build_data
+
+        try:
+            report = build_data(
+                args.split,
+                teacher=args.teacher,
+                limit=args.limit,
+                config_path=args.config,
+            )
+        except (ValueError, OSError, KeyError, yaml.YAMLError) as error:
+            parser.error(str(error))
+        print(
+            json.dumps(
+                {
+                    key: report[key]
+                    for key in (
+                        "counts",
+                        "rejected",
+                        "requested_shortfall",
+                        "plan_type_shortfalls",
+                    )
+                },
+                indent=2,
+            )
+        )
+        print(f"Stub output: build/stub/{args.split}/ (factor details in summary.json)")
+        return 0
     if args.command == "run-episodes":
         try:
             return _run(args)

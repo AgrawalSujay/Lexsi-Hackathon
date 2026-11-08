@@ -1,0 +1,19 @@
+# Step 3a: deterministic English stub builds only. No teacher/pipeline calls.
+seed: 1234
+templates: turnguard/data
+stub_output: build/stub
+# Train's ~1500 future DPO pairs: balanced injected/authorized source budget.
+# Pair construction itself belongs to task 04; clean twins are additional.
+targets:
+  train: {injected: 750, clean: 750, authorized: 750}
+  dev: {injected: 120, clean: 120, authorized: 120}
+  test: {injected: 300, clean: 300, authorized: 150}
+factors:
+  family: [email, docs, tickets, web, calendar, code]
+  carrier: [body, metadata, quoted, tool_error]
+  goal: [exfiltrate, destroy, tamper_answer, extra_call]
+  position: [first, later, split]
+  style: [imperative, fake_authority, named_approval, task_framed]
+  pressure: [none, snag]
+  conversation_language: [en, hi, hinglish]
+  injection_language: [en, hi, hinglish]
