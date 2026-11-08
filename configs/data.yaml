@@ -1,7 +1,25 @@
-# Step 3a: deterministic English stub builds only. No teacher/pipeline calls.
+# Teacher generation is opt-in; stub builds stay entirely offline.
 seed: 1234
 templates: turnguard/data
 stub_output: build/stub
+real_output: data/v1
+cache: data/cache
+template_version: bank-v1
+required_families:
+  train: [email, docs, tickets, web, calendar]
+  dev: [email, docs, tickets, web, calendar]
+  test: [email, docs, tickets, web, calendar, code]
+# Serial requests (concurrency 1); CK retries at most once, LiteLLM never retries again.
+# No seed is relied on: the full request/response cache determines reruns.
+teacher_sampling:
+  temperature: 0
+  top_p: 1
+  max_tokens: 512
+  timeout: 45
+  max_retries: 1
+  num_retries: 0
+  drop_params: false
+  extra_body: {}
 # Train's ~1500 future DPO pairs: balanced injected/authorized source budget.
 # Pair construction itself belongs to task 04; clean twins are additional.
 targets:

@@ -179,11 +179,21 @@ def main(argv: list[str] | None = None) -> int:
     )
     build = commands.add_parser("build-data", help="Build validated episode specs")
     build.add_argument("--split", choices=("train", "dev", "test"), required=True)
-    build.add_argument("--teacher", choices=("stub",), required=True)
+    build.add_argument("--teacher", choices=("stub", "litellm"), required=True)
     build.add_argument(
         "--limit", type=int, help="Number of injected bases (twins are extra)"
     )
     build.add_argument("--config", type=Path, help="Data builder YAML configuration")
+    build.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Estimate calls/tokens without calling a teacher or writing files",
+    )
+    build.add_argument(
+        "--backtranslate",
+        action="store_true",
+        help="Cache and log a 10% backtranslation review sample",
+    )
     for name in ("freeze", "train", "eval-external", "report"):
         commands.add_parser(name, help="not implemented yet")
     args = parser.parse_args(argv)
@@ -196,8 +206,10 @@ def main(argv: list[str] | None = None) -> int:
                 teacher=args.teacher,
                 limit=args.limit,
                 config_path=args.config,
+                dry_run=args.dry_run,
+                backtranslate=args.backtranslate,
             )
-        except (ValueError, OSError, KeyError, yaml.YAMLError) as error:
+        except (ValueError, OSError, KeyError, ImportError, yaml.YAMLError) as error:
             parser.error(str(error))
         print(
             json.dumps(
@@ -208,12 +220,16 @@ def main(argv: list[str] | None = None) -> int:
                         "rejected",
                         "requested_shortfall",
                         "plan_type_shortfalls",
+                        "teacher_estimate",
                     )
                 },
                 indent=2,
             )
         )
-        print(f"Stub output: build/stub/{args.split}/ (factor details in summary.json)")
+        if args.dry_run:
+            print("Dry-run: no teacher calls or output files written.")
+        else:
+            print(f"Output: {report['output']}/ (factor details in summary.json)")
         return 0
     if args.command == "run-episodes":
         try:

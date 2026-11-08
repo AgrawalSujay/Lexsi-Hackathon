@@ -24,3 +24,6 @@ htmlcov/
 *.pth
 # Written into Colab archives by scripts/colab_zip.py only.
 /BUILD_INFO.json
+
+# Local teacher credentials.
+/.env

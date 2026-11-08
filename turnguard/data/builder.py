@@ -1,4 +1,4 @@
-"""Deterministic offline episode assembly and route checks.
+"""Scenario-scoped multilingual episode assembly and route checks.
 
 Rendering and route verification are ported from scripts/render_prototype.py;
 that script remains the exhaustive format acceptance check. No teacher calls or
@@ -6,6 +6,7 @@ CuratorKIT pipeline run in the stub path.
 """
 
 import copy
+import hashlib
 import itertools
 import json
 import logging
@@ -18,6 +19,7 @@ from typing import Any
 
 import yaml
 
+from turnguard.data.teacher import Teacher, keep_tokens, read_settings
 from turnguard.harness import run_episodes
 from turnguard.models import StubGenerator
 from turnguard.oracles import exposed
@@ -81,26 +83,80 @@ def append_at(container: dict | list, pointer: str, text: str) -> None:
     container[key] = container[key] + "\n\n" + text
 
 
-def base(scenario: dict, attacker: dict, split: str = "dev") -> tuple[dict, dict]:
+def generate_state(
+    value: Any, teacher: Teacher, language: str, tokens: list[str]
+) -> Any:
+    """Fill only authored generator specs; preserve literal values and keys."""
+    if isinstance(value, dict) and "gen" in value:
+        text = teacher.generate(value, language, tokens)
+        check_generated_text(text)
+        return text
+    if isinstance(value, list):
+        return [generate_state(v, teacher, language, tokens) for v in value]
+    if isinstance(value, dict):
+        return {
+            k: generate_state(v, teacher, language, tokens) for k, v in value.items()
+        }
+    return value
+
+
+def base(
+    scenario: dict,
+    attacker: dict,
+    split: str = "dev",
+    *,
+    teacher_client: Teacher | None = None,
+    conversation_language: str = "en",
+    injection_language: str = "en",
+) -> tuple[dict, dict]:
     names = dict(scenario["vars"])
     names.update(attacker)
     names.update(fill(scenario["assets"], names))
-    state = stub_generate(fill(scenario["state"], names))
+    tokens = keep_tokens(scenario["vars"], attacker, fill(scenario["assets"], names))
+    skeleton = fill(scenario["state"], names)
+    state = (
+        generate_state(skeleton, teacher_client, conversation_language, tokens)
+        if teacher_client
+        else stub_generate(skeleton)
+    )
     state.setdefault("tool_errors", {})
+    turns = fill(scenario["turns"], names)
+    if teacher_client:
+        turns = [
+            teacher_client.translate(t, conversation_language, tokens, kind="user_turn")
+            for t in turns
+        ]
+        for text in turns:
+            check_generated_text(text)
     return names, {
         "split": split,
         "family": scenario["family"],
-        "lang": {"conversation": "en", "injection": "en"},
-        "user_turns": fill(scenario["turns"], names),
+        "lang": {
+            "conversation": conversation_language,
+            "injection": injection_language,
+        },
+        "user_turns": turns,
         "tools": scenario["tools"],
         "initial_state": state,
         "task_oracle": {"all": fill(scenario["task_oracle"], names)},
         "meta": {
             "scenario": scenario["id"],
-            "renderer": "stub-v1",
+            "renderer": "builder-v2",
             "obey_args": fill(scenario.get("obey_args", {}), names),
         },
     }
+
+
+def translate_slot(
+    slot: dict, teacher: Teacher | None, language: str, tokens: list[str]
+) -> dict:
+    slot = copy.deepcopy(slot)
+    if teacher and "intro" in slot:
+        slot["intro"] = teacher.translate(
+            slot["intro"], language, tokens, kind="quoted_intro"
+        )
+        check_generated_text(slot["intro"])
+    return slot
 
 
 def place(episode: dict, slot: dict, text: str, error: str | None) -> dict:
@@ -129,6 +185,9 @@ def injected(
     *,
     split: str = "dev",
     rng: random.Random | None = None,
+    teacher_client: Teacher | None = None,
+    conversation_language: str = "en",
+    injection_language: str = "en",
 ) -> dict | None:
     slots = fill(scenario["slots"].get(position, {}).get(carrier), scenario["vars"])
     targets = bank["goals"][goal]["targets"]
@@ -142,7 +201,15 @@ def injected(
         "attacker_url": choose(pool["url"]),
         "attacker_user": choose(pool["user"]),
     }
-    names, episode = base(scenario, attacker, split)
+    names, episode = base(
+        scenario,
+        attacker,
+        split,
+        teacher_client=teacher_client,
+        conversation_language=conversation_language,
+        injection_language=injection_language,
+    )
+    tokens = keep_tokens(scenario["vars"], attacker, fill(scenario["assets"], names))
     names["ask"] = fill(bank["goals"][goal]["ask"], names)
     names["short"] = fill(bank["styles"][style]["short"], names)
     error = None
@@ -156,6 +223,17 @@ def injected(
     else:
         texts = [fill(choose(bank["styles"][style]["long"]), names)]
     slot_list = slots if isinstance(slots, list) else [slots]
+    slot_list = [
+        translate_slot(slot, teacher_client, conversation_language, tokens)
+        for slot in slot_list
+    ]
+    if teacher_client:
+        texts = [
+            teacher_client.translate(t, injection_language, tokens, kind="injection")
+            for t in texts
+        ]
+    for text in texts:
+        check_generated_text(text)
     parts = [place(episode, s, t, error) for s, t in zip(slot_list, texts, strict=True)]
     episode.update(
         id=f"{scenario['id']}-{goal}-{style}-{pressure}-{position}-{carrier}",
@@ -173,13 +251,42 @@ def injected(
 
 
 def authorized(
-    scenario: dict, variant: dict, index: int, *, split: str = "dev"
+    scenario: dict,
+    variant: dict,
+    index: int,
+    *,
+    split: str = "dev",
+    teacher_client: Teacher | None = None,
+    conversation_language: str = "en",
 ) -> dict:
-    names, episode = base(scenario, {}, split)
+    names, episode = base(
+        scenario,
+        {},
+        split,
+        teacher_client=teacher_client,
+        conversation_language=conversation_language,
+        injection_language=conversation_language,
+    )
+    tokens = keep_tokens(
+        scenario["vars"], {}, fill(scenario["assets"], scenario["vars"])
+    )
     slot = fill(scenario["slots"][variant["position"]][variant["carrier"]], names)
     turn = 0 if variant["position"] == "first" else 1
-    episode["user_turns"][turn] += variant["delegate"]
+    slot = translate_slot(slot, teacher_client, conversation_language, tokens)
+    delegate = fill(variant["delegate"], names)
     text = fill(variant["text"], names)
+    if teacher_client:
+        delegate = teacher_client.translate(
+            delegate, conversation_language, tokens, kind="authorized_delegate"
+        )
+        # Addresses and filenames authored inside the variant itself are pinned too.
+        tokens = sorted(set(tokens + keep_tokens({}, {}, {"text": text})))
+        text = teacher_client.translate(
+            text, conversation_language, tokens, kind="authorized_text"
+        )
+    check_generated_text(delegate)
+    check_generated_text(text)
+    episode["user_turns"][turn] += delegate
     part = place(episode, slot, text, None)
     episode.update(
         id=f"{scenario['id']}-auth-{index}",
@@ -369,6 +476,8 @@ class Candidate:
     pressure: str
     position: str
     carrier: str
+    conversation_language: str = "en"
+    injection_language: str = "en"
 
     def factors(self) -> dict[str, str]:
         return {
@@ -379,17 +488,48 @@ class Candidate:
             "pressure": self.pressure,
             "position": self.position,
             "carrier": self.carrier,
-            "conversation_language": "en",
-            "injection_language": "en",
+            "conversation_language": self.conversation_language,
+            "injection_language": self.injection_language,
         }
 
 
-def candidates(scenarios: list[dict], bank: dict, split: str) -> list[Candidate]:
-    """Enumerate existing slots and targets, excluding held-outs before sampling."""
-    result = []
+def select_scenarios(
+    scenarios: list[dict], split: str, required: list[str]
+) -> list[dict]:
+    """Scenario splits are authored, never inferred or randomly repartitioned."""
+    ids = set()
     for scenario in scenarios:
-        if split != "test" and scenario["family"] == "code":
-            continue
+        if scenario.get("split") not in ("train", "dev", "test"):
+            raise ValueError(
+                f"Scenario {scenario['id']}: split must be train, dev or test"
+            )
+        if scenario["family"] == "code" and scenario["split"] != "test":
+            raise ValueError(
+                f"Scenario {scenario['id']}: family code must have split test"
+            )
+        if scenario["id"] in ids:
+            raise ValueError(f"Duplicate scenario id: {scenario['id']}")
+        ids.add(scenario["id"])
+    selected = [scenario for scenario in scenarios if scenario["split"] == split]
+    missing = sorted(set(required) - {scenario["family"] for scenario in selected})
+    if missing:
+        raise ValueError(
+            f"Missing required scenario family for split {split}: {', '.join(missing)}"
+        )
+    return selected
+
+
+def candidates(
+    scenarios: list[dict],
+    bank: dict,
+    split: str,
+    *,
+    conversation_languages: tuple[str, ...] = ("en",),
+    injection_languages: tuple[str, ...] = ("en",),
+) -> list[Candidate]:
+    """Enumerate supported slots and independent language axes within a split."""
+    result = []
+    for scenario in select_scenarios(scenarios, split, []):
         for goal, style, pressure, position, carrier in itertools.product(
             scenario["goals"],
             bank["styles"],
@@ -404,7 +544,21 @@ def candidates(scenarios: list[dict], bank: dict, split: str) -> list[Candidate]
                 continue
             if carrier not in scenario["slots"].get(position, {}):
                 continue
-            result.append(Candidate(scenario, goal, style, pressure, position, carrier))
+            for conversation, injection in itertools.product(
+                conversation_languages, injection_languages
+            ):
+                result.append(
+                    Candidate(
+                        scenario,
+                        goal,
+                        style,
+                        pressure,
+                        position,
+                        carrier,
+                        conversation,
+                        injection,
+                    )
+                )
     return result
 
 
@@ -507,31 +661,80 @@ def build_data(
     limit: int | None = None,
     root: Path | None = None,
     config_path: Path | None = None,
+    dry_run: bool = False,
+    backtranslate: bool = False,
+    teacher_client: Teacher | None = None,
 ) -> dict:
-    """Build an offline split and return counts and PLAN target shortfalls.
+    """Assemble checked multilingual groups; plan calls without I/O in dry-run.
 
-    Limit counts injected bases, never twins or authorized variants. Each
-    available authorized variant is emitted once; absent variants are reported,
-    not padded with duplicate episodes. A rejected base rejects its twin too;
-    the limit caps base attempts, and any acceptance deficit is reported.
+    Limit caps injected base attempts. Twins are built only after all generation
+    and translation. Every authorized variant is rendered once per conversation
+    language, regardless of limit; unavailable quota is reported, never duplicated.
     """
-    if teacher != "stub":
-        raise ValueError("Only --teacher stub is implemented in step 3a")
+    if teacher not in ("stub", "litellm"):
+        raise ValueError("teacher must be stub or litellm (set CK_MODEL in .env)")
     if split not in ("train", "dev", "test"):
         raise ValueError("split must be train, dev or test")
     root = Path(root) if root is not None else Path(__file__).resolve().parents[2]
     config_path = config_path or root / "configs/data.yaml"
     config = yaml.safe_load(config_path.read_text("utf-8"))
-    # Stub data must never be mistaken for a real teacher dataset.
     if Path(config["stub_output"]) != Path("build/stub"):
         raise ValueError("Stub output must be build/stub, never data/v1")
+    if Path(config["real_output"]) != Path("data/v1"):
+        raise ValueError("Real teacher output must be data/v1")
     target = config["targets"][split]
     count = target["injected"] if limit is None else limit
     if count < 0:
         raise ValueError("limit must be nonnegative")
-    bank, scenarios = load(root / config["templates"])
-    pool = candidates(scenarios, bank, split)
+    bank, all_scenarios = load(root / config["templates"])
+    required = config["required_families"][split]
+    scenarios = select_scenarios(all_scenarios, split, required)
+    output = (
+        root / config["stub_output" if teacher == "stub" else "real_output"] / split
+    )
+    # Freeze implementation belongs to 3c; protect already frozen datasets now.
+    if (output / "FROZEN").exists():
+        raise ValueError(f"Split {split} is frozen: {output}")
+    conversations = tuple(config["factors"]["conversation_language"])
+    injections = tuple(config["factors"]["injection_language"])
+    pool = candidates(
+        scenarios,
+        bank,
+        split,
+        conversation_languages=conversations,
+        injection_languages=injections,
+    )
     selected = sample(pool, count, seed=config["seed"])
+    if teacher_client is None:
+        settings = (
+            read_settings(root, required=teacher == "litellm" and not dry_run)
+            if teacher == "litellm"
+            else {}
+        )
+        # Hash actual input formats as well as the configured template version.
+        version = hashlib.sha256(
+            json.dumps(
+                {
+                    "version": config["template_version"],
+                    "bank": bank,
+                    "scenarios": all_scenarios,
+                },
+                sort_keys=True,
+                ensure_ascii=False,
+            ).encode()
+        ).hexdigest()
+        teacher_client = Teacher(
+            cache_dir=root / config["cache"],
+            model=settings.get("CK_MODEL", "stub" if teacher == "stub" else "unset"),
+            api_base=settings.get("CK_API_BASE", ""),
+            api_key=settings.get("CK_API_KEY", ""),
+            sampling=config["teacher_sampling"],
+            template_version=version,
+            mode="dry-run" if dry_run else "stub" if teacher == "stub" else "real",
+            review=backtranslate,
+        )
+    if dry_run and teacher_client.mode != "dry-run":
+        raise ValueError("dry-run requires a planning teacher, never a real transport")
     rng = random.Random(config["seed"])
     episodes, rejected = [], []
     for index, item in enumerate(selected):
@@ -545,10 +748,12 @@ def build_data(
                 item.pressure,
                 item.position,
                 item.carrier,
-                "en-en",
+                item.conversation_language,
+                item.injection_language,
                 str(index),
             ]
         )
+        start = len(teacher_client.history)
         try:
             episode = injected(
                 item.scenario,
@@ -560,15 +765,29 @@ def build_data(
                 item.carrier,
                 split=split,
                 rng=rng,
+                teacher_client=teacher_client,
+                conversation_language=item.conversation_language,
+                injection_language=item.injection_language,
             )
             episode["id"] = episode_id
-            episode["meta"]["seed"] = config["seed"]
+            episode["meta"].update(
+                seed=config["seed"],
+                teacher=teacher,
+                teacher_cache_keys=list(
+                    dict.fromkeys(row["key"] for row in teacher_client.history[start:])
+                ),
+            )
+            # Crucially this is the final, translated episode, not an English precursor.
             twin = make_clean_twin(episode)
             problems = (
-                check(item.scenario, episode)
-                + check(item.scenario, twin)
-                + validate_episode(twin, twins={episode_id: episode})
-                + placement_problems(episode, twin)
+                []
+                if dry_run
+                else (
+                    check(item.scenario, episode)
+                    + check(item.scenario, twin)
+                    + validate_episode(twin, twins={episode_id: episode})
+                    + placement_problems(episode, twin)
+                )
             )
             if problems:
                 rejected.append(
@@ -580,27 +799,43 @@ def build_data(
             rejected.append(
                 {"id": episode_id, "factors": factors, "reasons": [str(error)]}
             )
-    authorized_count = 0
     for scenario in scenarios:
-        if split != "test" and scenario["family"] == "code":
-            continue
         for index, variant in enumerate(scenario.get("authorized", [])):
-            if authorized_count >= target["authorized"]:
-                break
             if split != "test" and variant["carrier"] == "tool_error":
                 continue
-            episode_id = f"{split}-{scenario['id']}-auth-{index}-en-en"
-            try:
-                episode = authorized(scenario, variant, index, split=split)
-                episode["id"] = episode_id
-                problems = check(scenario, episode) + placement_problems(episode)
-                if problems:
-                    rejected.append({"id": episode_id, "reasons": problems})
-                else:
-                    episodes.append(episode)
-                    authorized_count += 1
-            except (ValueError, KeyError, TypeError, IndexError) as error:
-                rejected.append({"id": episode_id, "reasons": [str(error)]})
+            for conversation in conversations:
+                episode_id = f"{split}-{scenario['id']}-auth-{index}-{conversation}"
+                start = len(teacher_client.history)
+                try:
+                    episode = authorized(
+                        scenario,
+                        variant,
+                        index,
+                        split=split,
+                        teacher_client=teacher_client,
+                        conversation_language=conversation,
+                    )
+                    episode["id"] = episode_id
+                    episode["meta"].update(
+                        teacher=teacher,
+                        teacher_cache_keys=list(
+                            dict.fromkeys(
+                                row["key"] for row in teacher_client.history[start:]
+                            )
+                        ),
+                    )
+                    problems = (
+                        []
+                        if dry_run
+                        else check(scenario, episode) + placement_problems(episode)
+                    )
+                    if problems:
+                        rejected.append({"id": episode_id, "reasons": problems})
+                    else:
+                        episodes.append(episode)
+                except (ValueError, KeyError, TypeError, IndexError) as error:
+                    rejected.append({"id": episode_id, "reasons": [str(error)]})
+    teacher_client.backtranslate_sample()
     injected_items = [e for e in episodes if e["episode_type"] == "injected"]
     levels = copy.deepcopy(config["factors"])
     if split != "test":
@@ -610,6 +845,7 @@ def build_data(
         "split": split,
         "teacher": teacher,
         "seed": config["seed"],
+        "dry_run": dry_run,
         "requested_injected": count,
         "available_injected": len(pool),
         "counts": {
@@ -625,16 +861,25 @@ def build_data(
         },
         "factors": _factor_report(injected_items, levels, count),
         "plan_factors": _factor_report(injected_items, levels, target["injected"]),
+        "teacher_estimate": teacher_client.estimates(),
+        "output": str(output.relative_to(root)),
         "notes": [
-            "English only in step 3a; hi/hinglish are reported as shortfalls.",
+            "Independent language sampling; stub translations use language markers.",
             "Equal marginal factor quotas; slot constraints may prevent balance.",
-            "Authorized variants are not duplicated to fill unavailable scenarios.",
+            "Each authorized variant is rendered once per conversation language.",
             "Train quotas budget source episodes for future DPO pairs.",
+            "CuratorKIT dedup/hygiene/final export stages follow in step 3c.",
         ],
     }
-    output = root / config["stub_output"] / split
+    if dry_run:
+        return report
     output.mkdir(parents=True, exist_ok=True)
-    for name, rows in (("episodes.jsonl", episodes), ("rejected.jsonl", rejected)):
+    for name, rows in (
+        ("episodes.jsonl", episodes),
+        ("rejected.jsonl", rejected),
+        ("teacher_calls.jsonl", teacher_client.history),
+        ("backtranslations.jsonl", teacher_client.reviews),
+    ):
         (output / name).write_text(
             "".join(
                 json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n"
@@ -646,7 +891,7 @@ def build_data(
         json.dumps(report, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
         encoding="utf-8",
     )
-    logging.getLogger(__name__).info("Stub build %s: %s", split, report["counts"])
+    logging.getLogger(__name__).info("Build %s: %s", split, report["counts"])
     return report
 
 
