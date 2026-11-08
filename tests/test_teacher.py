@@ -250,6 +250,7 @@ def data_root(tmp_path, monkeypatch):
         )
     config = yaml.safe_load((REPO / "configs/data.yaml").read_text())
     config["required_families"]["dev"] = ["email", "tickets"]
+    config["targets"]["dev"]["injected"] = 5
     config["curator"]["minhash"]["threshold"] = 1.0
     (tmp_path / "configs").mkdir()
     (tmp_path / "configs/data.yaml").write_text(yaml.safe_dump(config))
@@ -267,7 +268,7 @@ def test_real_teacher_build_fake_transport_all_languages_and_cached_twins(
     from turnguard.schema import make_clean_twin, validate_episode
 
     report = builder.build_data(
-        "dev", teacher="litellm", limit=5, root=data_root, backtranslate=True
+        "dev", teacher="litellm", root=data_root, backtranslate=True
     )
     assert report["counts"] == {"injected": 5, "clean": 5, "authorized": 162}
     assert report["rejected"] == 0
@@ -336,7 +337,7 @@ def test_real_teacher_build_fake_transport_all_languages_and_cached_twins(
     )
     count = len(transport)
     rerun = builder.build_data(
-        "dev", teacher="litellm", limit=5, root=data_root, backtranslate=True
+        "dev", teacher="litellm", root=data_root, backtranslate=True
     )
     assert len(transport) == count
     assert rerun["teacher_estimate"]["teacher_calls"] == 0

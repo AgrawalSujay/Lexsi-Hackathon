@@ -37,11 +37,56 @@ STYLES = (
 )
 
 
+def malformed_address_problems(text: str) -> list[str]:
+    """Reject doubled dots/suffixes in emails, URLs and bare reserved domains."""
+    problems = []
+    for token in re.findall(r"[^\s<>\"']+", text):
+        if not (
+            "@" in token
+            or "://" in token
+            or re.search(r"\.(?:invalid|example\.\w+)\b", token, re.I)
+        ):
+            continue
+        if re.search(
+            r"\.\.|\.(?:invalid|example\.\w+)\.(?:invalid|example)", token, re.I
+        ):
+            problems.append(f"malformed address {token!r}")
+    return problems
+
+
+def authorized_target_problems(text: str, targets: list[dict]) -> list[str]:
+    """Every recipient (email or URL) the target expects must be stated verbatim.
+
+    Codes and IDs the model is expected to look up from the data (a zone code,
+    a booking reference) are deliberately not required: injected texts also
+    refer to items by description, so stating literal codes only in authorized
+    instructions would add a surface cue.
+    """
+    return list(
+        dict.fromkeys(
+            f"authorized target term '{term}' not in instruction text"
+            for target in targets
+            for terms in target.get("args_contains", {}).values()
+            for term in terms
+            if ("@" in term or "://" in term) and term not in text
+        )
+    )
+
+
 def load(data: Path = DATA) -> tuple[dict, list[dict]]:
-    bank = yaml.safe_load((data / "injections.yaml").read_text("utf-8"))
+    bank_path = data / "injections.yaml"
+    bank_text = bank_path.read_text("utf-8")
+    problems = malformed_address_problems(bank_text)
+    if problems:
+        raise ValueError(f"{bank_path}: {'; '.join(problems)}")
+    bank = yaml.safe_load(bank_text)
     scenarios = []
     for path in sorted((data / "templates").glob("*.yaml")):
-        family_file = yaml.safe_load(path.read_text("utf-8"))
+        source = path.read_text("utf-8")
+        problems = malformed_address_problems(source)
+        if problems:
+            raise ValueError(f"{path}: {'; '.join(problems)}")
+        family_file = yaml.safe_load(source)
         for scenario in family_file["scenarios"]:
             scenarios.append({**scenario, "family": family_file["family"]})
     return bank, scenarios
@@ -442,6 +487,16 @@ def authorized(
     injection_language: str | None = None,
     address_assistant: bool = False,
 ) -> dict:
+    # Check the filled English before any filler or translation request. A code
+    # merely implied by "the booking reference" cannot be checked losslessly.
+    source_names = dict(scenario["vars"])
+    source_names.update(fill(scenario["assets"], source_names))
+    source_text = fill(variant["text"], source_names)
+    source_targets = fill(variant["target"], source_names)
+    problems = malformed_address_problems(source_text)
+    problems += authorized_target_problems(source_text, source_targets)
+    if problems:
+        raise ValueError("; ".join(problems))
     injection_language = injection_language or conversation_language
     names, episode = base(
         scenario,
@@ -637,6 +692,19 @@ def check(scenario: dict, episode: dict) -> list[str]:
     problems = validate_episode(episode)
     if problems:
         return problems
+    if episode["episode_type"] == "authorized":
+        text = "\n".join(p["text"] for p in episode["authorized"]["parts"])
+        if episode["lang"]["injection"] != "en":
+            index = episode["meta"].get("authorized_variant")
+            if type(index) is not int or not 0 <= index < len(scenario["authorized"]):
+                return ["authorized English source variant is unavailable"]
+            names = dict(scenario["vars"])
+            names.update(fill(scenario["assets"], names))
+            text = fill(scenario["authorized"][index]["text"], names)
+        problems += malformed_address_problems(text)
+        problems += authorized_target_problems(text, episode["authorized"]["target"])
+        if problems:
+            return problems
     for matcher in episode["task_oracle"]["all"]:
         terms = matcher.get("contains", []) + [
             t for ts in matcher.get("args_contains", {}).values() for t in ts
@@ -920,9 +988,10 @@ def build_data(
 ) -> dict:
     """Assemble checked multilingual groups; plan calls without I/O in dry-run.
 
-    Limit caps injected base attempts. Twins are built only after all generation
-    and translation. Every authorized variant is rendered once per conversation
-    language, regardless of limit; unavailable quota is reported, never duplicated.
+    Limit caps attempts per episode type: injected bases, their clean twins,
+    and authorized controls. Twins share generation/translation with their base.
+    Without a limit all authorized views expand subject to configured split caps;
+    unavailable quota is reported, never duplicated.
     """
     if teacher not in ("stub", "litellm"):
         raise ValueError("teacher must be stub or litellm (set CK_MODEL in .env)")
@@ -1120,6 +1189,10 @@ def build_data(
         if cue_flip
         else config.get("authorized_caps", {}).get(split)
     )
+    if limit is not None:
+        authorized_cap = (
+            min(limit, authorized_cap) if authorized_cap is not None else limit
+        )
     if authorized_cap is not None:
         if type(authorized_cap) is not int or authorized_cap < 0:
             raise ValueError("authorized cap must be a nonnegative integer")
@@ -1497,12 +1570,12 @@ def build_data(
     if dry_run:
         from turnguard.data.cues import cue_audit
 
-        report["cue_audit"] = cue_audit(episodes)
+        report["cue_audit"] = cue_audit(episodes, limited=limit is not None)
         return report
     output.mkdir(parents=True, exist_ok=True)
     from turnguard.data.cues import write_cue_audit
 
-    report["cue_audit"] = write_cue_audit(episodes, output)
+    report["cue_audit"] = write_cue_audit(episodes, output, limited=limit is not None)
     for name, rows in (
         ("rejected.jsonl", rejected),
         (
@@ -1541,6 +1614,9 @@ def check_generated_text(text: str) -> None:
     Bare domains with common web suffixes count as links; ordinary file names
     (e.g. payroll.xlsx) do not.
     """
+    problems = malformed_address_problems(text)
+    if problems:
+        raise ValueError("; ".join(problems))
     email_hosts = re.findall(r"[\w.+%-]+@([\w.-]+)", text)
     web_hosts = re.findall(
         r"(?i)(?:https?://|www\.)([a-z0-9.-]+)|"

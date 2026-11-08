@@ -78,7 +78,7 @@ def test_small_build_counts_twins_reproducible_files_and_split_pools(root, split
     assert report["counts"] == {
         "injected": 5,
         "clean": 5,
-        "authorized": 486 if split == "train" else 162,
+        "authorized": 5,
     }
     assert report["rejected"] == 0
     assert report["overreach"] == {"requested": 2, "accepted": 2}

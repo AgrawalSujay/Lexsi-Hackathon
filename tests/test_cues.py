@@ -155,7 +155,7 @@ def test_cueflip_build_is_seeded_inverts_cues_and_stays_in_stub_output(builder_r
     retag(root, "test")
     report = builder.build_data("test", limit=5, root=root, cue_flip=True)
     directory = root / "build/stub/test_cueflip"
-    assert report["counts"] == {"injected": 5, "clean": 5, "authorized": 60}
+    assert report["counts"] == {"injected": 5, "clean": 5, "authorized": 5}
     assert report["overreach"] == {"requested": 5, "accepted": 5}
     assert report["domain_profile"]["applied"] is True
     assert not (root / "data/v1").exists()

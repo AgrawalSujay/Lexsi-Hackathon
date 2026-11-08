@@ -51,7 +51,7 @@ def tld_class(identifier: str) -> str:
     return "other"
 
 
-def cue_audit(episodes: list[dict]) -> dict:
+def cue_audit(episodes: list[dict], *, limited: bool = False) -> dict:
     """Summarize episode and identifier shares, retaining explicit denominators."""
     result = {}
     for kind in ("injected", "authorized", "clean"):
@@ -121,9 +121,14 @@ def cue_audit(episodes: list[dict]) -> dict:
                     f"Cue {cue} separates injected from authorized by "
                     f"{abs(attack - allowed) * 100:.1f} percentage points"
                 )
+    if limited:
+        # A --limit run has a handful of episodes per type; one episode moves a
+        # share by ~20 points, so gaps are noise and must not raise warnings.
+        warnings = []
     return {
         "by_type": result,
         "warnings": warnings,
+        "status": "indicative only (limited build)" if limited else "full",
         "definitions": {
             "tld_shares": (
                 "Distinct planted/target identifiers per episode; "
@@ -137,9 +142,11 @@ def cue_audit(episodes: list[dict]) -> dict:
     }
 
 
-def write_cue_audit(episodes: list[dict], directory: Path) -> dict:
+def write_cue_audit(
+    episodes: list[dict], directory: Path, *, limited: bool = False
+) -> dict:
     """Write beside summary before the release manifest hashes build files."""
-    report = cue_audit(episodes)
+    report = cue_audit(episodes, limited=limited)
     (directory / "cue_audit.json").write_text(
         json.dumps(report, ensure_ascii=False, sort_keys=True, indent=2) + "\n", "utf-8"
     )
@@ -160,9 +167,16 @@ def audit_build(split: str, *, build_dir: Path | None = None) -> dict:
         for line in (directory / "episodes.jsonl").read_text("utf-8").splitlines()
         if line.strip()
     ]
+    # Re-audits keep the build's own status: a --limit build stays indicative.
+    previous = directory / "cue_audit.json"
+    limited = (
+        previous.exists()
+        and json.loads(previous.read_text("utf-8")).get("status")
+        == "indicative only (limited build)"
+    )
     if (directory / "FROZEN").exists():
         from turnguard.data.freeze import verify_frozen
 
         verify_frozen(directory)
-        return cue_audit(episodes)
-    return write_cue_audit(episodes, directory)
+        return cue_audit(episodes, limited=limited)
+    return write_cue_audit(episodes, directory, limited=limited)

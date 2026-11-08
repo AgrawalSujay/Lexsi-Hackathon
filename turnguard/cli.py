@@ -431,7 +431,9 @@ def main(argv: list[str] | None = None) -> int:
     build.add_argument("--split", choices=("train", "dev", "test"), required=True)
     build.add_argument("--teacher", choices=("stub", "litellm"), required=True)
     build.add_argument(
-        "--limit", type=int, help="Number of injected bases (twins are extra)"
+        "--limit",
+        type=int,
+        help="Maximum episodes per type (injected, clean and authorized)",
     )
     build.add_argument(
         "--cue-flip", action="store_true", help="Build the test cue-flipped companion"

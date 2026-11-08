@@ -85,8 +85,8 @@ def test_authorized_carrier_expansion_is_complete_and_deduplicated():
     assert builder.authorized_variants(scenario) == before
 
 
-def test_train_authorized_budget_reaches_five_hundred_with_all_axes():
-    report = builder.build_data("train", limit=5, dry_run=True)
+def test_train_authorized_budget_reaches_five_hundred_with_all_axes(bank_root):
+    report = builder.build_data("train", root=bank_root, dry_run=True)
     assert report["counts"]["authorized"] >= 500
     coverage = report["authorized_coverage"]
     assert set(coverage["by_carrier"]) == {"body", "metadata", "quoted"}
