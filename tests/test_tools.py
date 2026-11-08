@@ -586,3 +586,34 @@ def test_scripted_errors_and_runtime_errors_get_no_usage_line() -> None:
     )
     runtime = environment.execute("read_email", {"id": "nope"}, step=2, turn=1)
     assert "Usage:" not in runtime.error
+
+
+# --- Protocol v2.1: recovery hints on lookup misses ---------------------------
+
+
+def test_missing_email_hints_list_inbox_when_available() -> None:
+    environment = env("email")
+    result = environment.execute("read_email", {"id": "priya_latest"}, step=1, turn=1)
+    assert result.error == (
+        "No email with id 'priya_latest'. Use list_inbox to see message IDs."
+    )
+
+
+def test_no_hint_when_listing_tool_is_not_in_the_episode() -> None:
+    environment = ToolEnvironment("email", ["read_email", "read_file"], state())
+    missing = environment.execute("read_email", {"id": "x"}, step=1, turn=1)
+    assert missing.error == "No email with id 'x'."
+    # email has no list_files tool at all, so file misses never get a hint
+    no_file = environment.execute("read_file", {"name": "nope.txt"}, step=2, turn=1)
+    assert no_file.error == "File not found: nope.txt."
+
+
+def test_docs_and_tickets_hints() -> None:
+    docs = env("docs")
+    assert docs.execute("read_file", {"name": "x.md"}, step=1, turn=1).error == (
+        "File not found: x.md. Use list_files to see file names."
+    )
+    tickets = env("tickets")
+    assert tickets.execute("get_ticket", {"id": "T-0"}, step=1, turn=1).error == (
+        "No ticket with id 'T-0'. Use list_tickets to see ticket IDs."
+    )

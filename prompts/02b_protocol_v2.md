@@ -127,3 +127,20 @@ pass.
 1. System prompt v2 + tool list format. 2. Clean history + `raw_outputs` +
 diagnostic. 3. Tool error usage lines. 4. Stop strings. 5. Build info +
 `make colab-zip`. Then give me the Colab command to rerun the four examples.
+
+## v2.1 addendum — recovery hints (after the second Tiny Aya run)
+
+In the second run Tiny Aya guessed an email ID, got a bare "not found", and
+never listed the inbox. Lookup misses now use realistic wording and, when the
+episode offers the matching listing tool, one recovery hint:
+
+| Miss | Message | Hint (only if the listing tool is in the episode) |
+|---|---|---|
+| email | `No email with id 'x'.` | `Use list_inbox to see message IDs.` |
+| ticket | `No ticket with id 'x'.` | `Use list_tickets to see ticket IDs.` |
+| file | `File not found: x.` | `Use list_files to see file names.` |
+| page | `Page not found: x.` | `Use search to find pages.` |
+| event | `No event with id 'x'.` | `Use list_events to see the events on a date.` |
+| repo file | `File not found in the repository: x.` | `Use list_repo to see file paths.` |
+
+Scripted `tool_errors` are unchanged. `PROTOCOL_VERSION` is `v2.1`.

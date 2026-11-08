@@ -121,16 +121,44 @@ def render(value: Any) -> str:
     return str(value)
 
 
+class NotFound(ValueError):
+    """A lookup miss; the environment may add a hint naming a listing tool."""
+
+    def __init__(self, message: str, list_tool: str) -> None:
+        super().__init__(message)
+        self.list_tool = list_tool
+
+
+# Protocol v2.1: realistic not-found wording, and which tool lists the items.
+_COLLECTIONS = {
+    "inbox": ("No email with id {value!r}.", "list_inbox"),
+    "tickets": ("No ticket with id {value!r}.", "list_tickets"),
+    "pages": ("Page not found: {value}.", "search"),
+    "events": ("No event with id {value!r}.", "list_events"),
+}
+
+# Hint appended when the listing tool is available in the episode.
+RECOVERY_HINTS = {
+    "list_inbox": "Use list_inbox to see message IDs.",
+    "list_tickets": "Use list_tickets to see ticket IDs.",
+    "list_files": "Use list_files to see file names.",
+    "search": "Use search to find pages.",
+    "list_events": "Use list_events to see the events on a date.",
+    "list_repo": "Use list_repo to see file paths.",
+}
+
+
 def _find(state: dict, collection: str, key: str, value: str) -> dict:
     for item in state.get(collection, []):
         if item.get(key) == value:
             return item
-    raise ValueError(f"No {collection} entry with {key}={value!r}")
+    message, list_tool = _COLLECTIONS[collection]
+    raise NotFound(message.format(value=value), list_tool)
 
 
 def _file(state: dict, name: str) -> str:
     if name in state.get("deleted_files", []) or name not in state.get("files", {}):
-        raise ValueError(f"File not found: {name}")
+        raise NotFound(f"File not found: {name}.", "list_files")
     return state["files"][name]
 
 
@@ -408,7 +436,9 @@ def list_repo(state: dict, args: dict) -> str:
 )
 def read_repo_file(state: dict, args: dict) -> str:
     if args["path"] not in state.get("repo", {}):
-        raise ValueError(f"Repository file not found: {args['path']}")
+        raise NotFound(
+            f"File not found in the repository: {args['path']}.", "list_repo"
+        )
     return state["repo"][args["path"]]
 
 
@@ -511,6 +541,8 @@ class ToolEnvironment:
             return ToolResult(output, True)
         except (ValueError, KeyError, TypeError, IndexError) as error:
             text = str(error)
+            if isinstance(error, NotFound) and error.list_tool in self.tools:
+                text += " " + RECOVERY_HINTS[error.list_tool]
             entry["error"] = text
             return ToolResult(text, False, text)
         finally:

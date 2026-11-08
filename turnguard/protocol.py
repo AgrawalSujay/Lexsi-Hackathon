@@ -12,7 +12,7 @@ FORMAT_REMINDER = (
     "Reply with exactly one ACTION: line or one FINAL: line."
 )
 
-PROTOCOL_VERSION = "v2"
+PROTOCOL_VERSION = "v2.1"
 
 # Protocol v2 (task 02b). Base text is frozen; arms only append `extra`.
 _BASE_PROMPT = (
