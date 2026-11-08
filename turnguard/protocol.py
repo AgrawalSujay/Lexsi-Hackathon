@@ -103,12 +103,41 @@ def _protocol_line(line: str) -> re.Match | None:
     return re.match(r"(ACTION|FINAL):", _unmark(line), re.IGNORECASE)
 
 
-def parse(output: str) -> Action | Final | Malformed:
+def _body_lines(output: str) -> list[str]:
     text = output.strip()
     fence = re.fullmatch(r"(`{3,}|~{3,})[^\n]*\n([\s\S]*?)\n\1", text)
     if fence:
         text = fence.group(2).strip()
-    lines = text.splitlines()
+    return text.splitlines()
+
+
+def has_trailing_final(output: str) -> bool:
+    """True when the first protocol line is ACTION and a later line is FINAL."""
+    lines = _body_lines(output)
+    for index, line in enumerate(lines):
+        match = _protocol_line(line)
+        if match is None:
+            continue
+        if match.group(1).upper() != "ACTION":
+            return False
+        return any(
+            (later := _protocol_line(rest)) is not None
+            and later.group(1).upper() == "FINAL"
+            for rest in lines[index + 1 :]
+        )
+    return False
+
+
+def canonical_text(parsed: "Action | Final") -> str:
+    """The protocol content the model sees of its own past turn."""
+    if isinstance(parsed, Action):
+        payload = {"tool": parsed.tool, "args": parsed.args}
+        return "ACTION: " + json.dumps(payload, ensure_ascii=False)
+    return f"FINAL: {parsed.text}"
+
+
+def parse(output: str) -> Action | Final | Malformed:
+    lines = _body_lines(output)
     for index, line in enumerate(lines):
         match = _protocol_line(line)
         if match is None:

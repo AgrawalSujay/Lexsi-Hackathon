@@ -12,6 +12,7 @@ from turnguard.config import load_config
 from turnguard.harness import run_episodes
 from turnguard.metrics import compute_metrics
 from turnguard.models import HFGenerator, StubGenerator
+from turnguard.protocol import PROTOCOL_VERSION
 from turnguard.runs import new_run_dir
 from turnguard.schema import EpisodeSpec, validate_episode
 
@@ -100,6 +101,7 @@ def _run(args: argparse.Namespace) -> int:
         "episode_paths": [str(path) for path in paths],
         "model_key": args.model if args.generator == "hf" else None,
         "inference": {"batch_size": batch_size},
+        "protocol_version": PROTOCOL_VERSION,
         **script_info,
     }
     run_dir = new_run_dir(args.arm, generator.name, args.split, root=args.root)

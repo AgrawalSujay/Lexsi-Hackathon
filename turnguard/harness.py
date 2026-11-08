@@ -10,6 +10,8 @@ from turnguard.protocol import (
     FORMAT_REMINDER,
     Action,
     Final,
+    canonical_text,
+    has_trailing_final,
     parse,
     render_system_prompt,
 )
@@ -70,7 +72,17 @@ def _advance(active: _Active, output: str, max_steps: int, role: str) -> None:
     record.steps += 1
     active.turn_steps += 1
     parsed = parse(output)
-    model_message = {"role": "assistant", "content": output}
+    record.raw_outputs.append({"step": record.steps, "text": output})
+    # Protocol v2: the model sees only the protocol content of its own past
+    # turns (no preamble, no invented trailing FINAL). Malformed turns stay raw
+    # so the model can see what it wrote next to the format reminder.
+    if isinstance(parsed, (Action, Final)):
+        content = canonical_text(parsed)
+    else:
+        content = output
+    if isinstance(parsed, Action) and has_trailing_final(output):
+        record.action_with_trailing_final += 1
+    model_message = {"role": "assistant", "content": content}
     record.messages_model.append(model_message)
     if isinstance(parsed, Action):
         call_id = f"call_{record.steps}"

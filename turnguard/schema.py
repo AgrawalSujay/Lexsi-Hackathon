@@ -4,7 +4,7 @@ import copy
 import hashlib
 import json
 import re
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from typing import Any
 
 # Shared vocabulary; the executable registry added in step 2 uses these names.
@@ -312,6 +312,9 @@ class EpisodeRecord:
     steps: int
     malformed_turns: int
     result: dict
+    # Protocol v2: every raw model output, and ACTION turns that also wrote FINAL.
+    raw_outputs: list[dict] = field(default_factory=list)
+    action_with_trailing_final: int = 0
 
     def to_dict(self) -> dict:
         return asdict(self)

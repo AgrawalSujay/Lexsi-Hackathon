@@ -136,7 +136,11 @@ def test_malformed_then_valid_action_and_fixed_reminder() -> None:
 def test_model_and_openai_tool_messages(role: str) -> None:
     raw = "Reasoning\n" + action("read_email", id="m1")
     record = run_one("ex-email-clean-001", [raw, "FINAL: Done"], tool_result_role=role)
-    assert record.messages_model[2]["content"] == raw
+    # Protocol v2: the model sees only the canonical action; raw text is kept.
+    assert record.messages_model[2]["content"] == (
+        'ACTION: {"tool": "read_email", "args": {"id": "m1"}}'
+    )
+    assert record.raw_outputs[0] == {"step": 1, "text": raw}
     assistant = record.messages_openai[2]
     result = record.messages_openai[3]
     assert assistant["content"] == "Reasoning"
@@ -396,3 +400,71 @@ def test_generation_failure_preserves_executed_injection(violated: bool) -> None
         assert trace.result["injection_executed"] is True
         assert trace.result["task_success"] is True
     assert trace.steps == 1
+
+
+# --- Protocol v2: clean history (task 02b step 2) -----------------------------
+
+# Verbatim shape of Tiny Aya's replies in the first Colab run.
+TINY_AYA_STYLE = (
+    '\n**ACTION:**\n```json\n{\n  "tool": "read_email",\n  "args": {\n'
+    '    "id": "m1"\n  }\n}\n```\n\n**FINAL:**\nI\'ve read the latest email from '
+    "Priya and confirmed the new meeting time."
+)
+
+
+def test_trailing_final_is_hidden_from_model_but_kept_raw() -> None:
+    record = run_one(
+        "ex-email-clean-001",
+        [action("read_email", id="m1") + "\n\nFINAL: invented outcome", "FINAL: Done"],
+    )
+    assert record.calls[0]["tool"] == "read_email" and record.calls[0]["ok"]
+    assert record.messages_model[2]["content"] == (
+        'ACTION: {"tool": "read_email", "args": {"id": "m1"}}'
+    )
+    assert "invented outcome" not in json.dumps(record.messages_model)
+    assert "invented outcome" in record.raw_outputs[0]["text"]
+    assert record.action_with_trailing_final == 1
+    assert record.answers == [{"turn": 1, "text": "Done"}]
+
+
+def test_tiny_aya_style_output_is_canonicalised() -> None:
+    record = run_one("ex-email-clean-001", [TINY_AYA_STYLE, "FINAL: Done"])
+    assert record.calls[0]["args"] == {"id": "m1"} and record.calls[0]["ok"]
+    assert record.messages_model[2]["content"].startswith("ACTION: ")
+    assert "confirmed the new meeting time" not in json.dumps(record.messages_model)
+    assert record.action_with_trailing_final == 1
+    assert record.malformed_turns == 0
+
+
+def test_final_with_preamble_is_canonical_and_malformed_stays_raw() -> None:
+    record = run_one(
+        "ex-email-clean-001",
+        ["just prose, no protocol", "Here is my answer.\nFINAL: Done"],
+    )
+    assert record.messages_model[2]["content"] == "just prose, no protocol"
+    assert record.messages_model[3]["content"] == FORMAT_REMINDER
+    assert record.messages_model[4]["content"] == "FINAL: Done"
+    assert [r["step"] for r in record.raw_outputs] == [1, 2]
+    assert record.action_with_trailing_final == 0
+
+
+def test_records_without_v2_fields_still_load() -> None:
+    record = run_one("ex-email-clean-001", ["FINAL: Done"])
+    legacy = record.to_dict()
+    del legacy["raw_outputs"], legacy["action_with_trailing_final"]
+    loaded = EpisodeRecord.from_json(json.dumps(legacy))
+    assert loaded.raw_outputs == [] and loaded.action_with_trailing_final == 0
+
+
+def test_metrics_report_trailing_final_diagnostic() -> None:
+    from turnguard.metrics import compute_metrics
+
+    spec = specs()["ex-email-clean-001"]
+    records = run_episodes(
+        [spec],
+        StubGenerator(
+            {spec["id"]: [action("read_email", id="m1") + "\nFINAL: x", "FINAL: Done"]}
+        ),
+    )
+    diagnostics = compute_metrics(records, [spec])["diagnostics"]
+    assert diagnostics == {"assistant_turns": 2, "action_with_trailing_final": 1}

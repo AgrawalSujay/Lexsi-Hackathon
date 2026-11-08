@@ -85,6 +85,12 @@ def compute_metrics(
         "first_violation_step": {
             str(step): count for step, count in sorted(histogram.items())
         },
+        "diagnostics": {
+            "assistant_turns": sum(r.steps for r in records),
+            "action_with_trailing_final": sum(
+                r.action_with_trailing_final for r in records
+            ),
+        },
         "counts": {
             "episodes": len(records),
             "graded": len(graded),

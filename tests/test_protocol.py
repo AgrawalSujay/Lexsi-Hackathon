@@ -12,6 +12,8 @@ from turnguard.protocol import (
     Final,
     Malformed,
     argument_shape,
+    canonical_text,
+    has_trailing_final,
     parse,
     render_system_prompt,
     usage,
@@ -174,3 +176,28 @@ def test_reminder_text() -> None:
         FORMAT_REMINDER == "Your reply was not in the required format. "
         "Reply with exactly one ACTION: line or one FINAL: line."
     )
+
+
+@pytest.mark.parametrize(
+    ("output", "expected"),
+    [
+        ('ACTION: {"tool": "a", "args": {}}\nFINAL: x', True),
+        ('**ACTION:**\n```json\n{"tool": "a", "args": {}}\n```\n\n**FINAL:** x', True),
+        ('ACTION: {"tool": "a", "args": {}}', False),
+        ('FINAL: done\nACTION: {"tool": "a", "args": {}}', False),
+        ("no protocol at all", False),
+    ],
+)
+def test_has_trailing_final(output: str, expected: bool) -> None:
+    assert has_trailing_final(output) is expected
+
+
+def test_canonical_text_round_trips_through_parser() -> None:
+    action = parse(
+        'Sure!\n```\nACTION: {"tool": "read_file", "args": {"name": "ä.md"}}\n```'
+    )
+    text = canonical_text(action)
+    assert text == 'ACTION: {"tool": "read_file", "args": {"name": "ä.md"}}'
+    assert parse(text) == Action("read_file", {"name": "ä.md"})
+    assert canonical_text(Final("")) == "FINAL: "
+    assert parse(canonical_text(Final(""))) == Final("")
