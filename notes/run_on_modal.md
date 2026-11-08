@@ -40,4 +40,7 @@ lists each step as `ok` and the saved `runs/...` folders.
 - `Secret 'huggingface' not found`: run the `modal secret create` line above.
 - `401` / `gated repo`: the token lacks access or the licence is not accepted.
 - A step shows `FAILED`: copy the lines above the summary and send them.
+- `heartbeat failed` / `local client disconnected`: your internet dropped and
+  the run stopped. Rerun the command. Results of steps that finished are also
+  on the Volume: `modal volume get turnguard-hf-cache runs ./runs_modal`.
 - Check spend at modal.com → Settings → Usage & billing.

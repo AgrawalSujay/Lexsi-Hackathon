@@ -23,6 +23,7 @@ first run downloads them.
 import datetime
 import io
 import json
+import shutil
 import subprocess
 import tarfile
 import tomllib
@@ -34,19 +35,21 @@ ROOT = Path(__file__).resolve().parents[1]
 GPU_CHOICES = ("L40S", "A100-80GB", "H100")
 TASKS = ("smoke", "examples", "probe", "all")
 
-_project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))[
-    "project"
-]
-_packages = [
-    *_project["dependencies"],
-    *_project["optional-dependencies"]["gpu"],
-    *_project["optional-dependencies"]["dev"],
-]
+
+def _packages() -> list[str]:
+    # Inside the Modal container this file is /root/modal_run.py with no repo
+    # around it; the image is already built there, so the list is not needed.
+    if not modal.is_local():
+        return []
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    extras = project["project"]["optional-dependencies"]
+    return [*project["project"]["dependencies"], *extras["gpu"], *extras["dev"]]
+
 
 image = (
     modal.Image.debian_slim(python_version="3.12")
     .apt_install("git")
-    .uv_pip_install(*_packages)
+    .uv_pip_install(*_packages())
     .env({"HF_HOME": "/cache/hf", "TOKENIZERS_PARALLELISM": "false"})
 )
 cache = modal.Volume.from_name("turnguard-hf-cache", create_if_missing=True)
@@ -157,9 +160,13 @@ def run_task(task: str, model: str, source: bytes, info: dict) -> dict:
                 print(f"!! step {name} failed with exit code {code}; stopping")
                 break
     finally:
-        cache.commit()  # keep downloaded weights for the next run
+        runs = work / "runs"
+        if runs.exists():
+            # Also keep results on the Volume, in case the local client
+            # disconnects before it receives them.
+            shutil.copytree(runs, "/cache/runs", dirs_exist_ok=True)
+        cache.commit()  # keep downloaded weights (and runs) for the next run
     buffer = io.BytesIO()
-    runs = work / "runs"
     with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
         if runs.exists():
             archive.add(runs, arcname="runs")
