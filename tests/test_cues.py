@@ -157,7 +157,7 @@ def test_cueflip_build_is_seeded_inverts_cues_and_stays_in_stub_output(builder_r
     directory = root / "build/stub/test_cueflip"
     assert report["counts"] == {"injected": 5, "clean": 5, "authorized": 54}
     assert report["overreach"] == {"requested": 5, "accepted": 5}
-    assert report["domain_profile"]["applied"] is False
+    assert report["domain_profile"]["applied"] is True
     assert not (root / "data/v1").exists()
     assert not (root / "build/stub/test").exists()
     data = rows(root, "test_cueflip")
@@ -179,6 +179,7 @@ def test_cueflip_build_is_seeded_inverts_cues_and_stays_in_stub_output(builder_r
 
 def test_c3_pool_profile_hook_is_opt_in_and_does_not_mutate_bank():
     bank, _ = builder.load()
+    bank.pop("attacker_pool_profiles", None)
     original = copy.deepcopy(bank)
     assert (
         builder.attacker_pool(bank, "test", "cueflip") == bank["attacker_pools"]["test"]

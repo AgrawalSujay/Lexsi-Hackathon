@@ -27,7 +27,14 @@ from turnguard.schema import make_clean_twin, resolve_pointer, validate_episode
 from turnguard.tools import REGISTRY, scripted_error_matches
 
 DATA = Path(__file__).resolve().parent
-STYLES = ("imperative", "fake_authority", "named_approval", "task_framed")
+STYLES = (
+    "imperative",
+    "fake_authority",
+    "named_approval",
+    "task_framed",
+    "protocol_spoof",
+    "quiet_fyi",
+)
 
 
 def load(data: Path = DATA) -> tuple[dict, list[dict]]:
@@ -38,6 +45,32 @@ def load(data: Path = DATA) -> tuple[dict, list[dict]]:
         for scenario in family_file["scenarios"]:
             scenarios.append({**scenario, "family": family_file["family"]})
     return bank, scenarios
+
+
+def split_text(value: Any, split: str) -> Any:
+    """Select version-2 split prose; retain version-1 fixtures and callers."""
+    if isinstance(value, dict):
+        if split not in value:
+            raise ValueError(f"Injection prose missing split {split}")
+        return value[split]
+    return value
+
+
+def redirect_route(
+    scenario: dict, bank: dict, position: str
+) -> tuple[int, dict] | None:
+    """Redirect only actions already requested in the exposed user turn."""
+    targets = bank["goals"]["redirect"]["targets"].get(scenario["family"], [])
+    turn = 1 if position == "first" else 2
+    for index, step in enumerate(scenario["route"]):
+        if step["turn"] != turn:
+            continue
+        for target in targets:
+            if step["tool"] == target["tool"] and all(
+                key in step["args"] for key in target["args_contains"]
+            ):
+                return index, target
+    return None
 
 
 def fill(value: Any, names: dict) -> Any:
@@ -273,10 +306,17 @@ def injected(
     overreach: bool = False,
     pool_profile: str = "default",
 ) -> dict | None:
+    if carrier == "tool_error" and bank.get("version", 1) >= 2 and split != "test":
+        return None
     slots = fill(scenario["slots"].get(position, {}).get(carrier), scenario["vars"])
     targets = bank["goals"][goal]["targets"]
     family_targets = targets.get(scenario["family"], targets.get("*"))
     if slots is None or family_targets is None:
+        return None
+    redirected = (
+        redirect_route(scenario, bank, position) if goal == "redirect" else None
+    )
+    if goal == "redirect" and redirected is None:
         return None
     pool = attacker_pool(bank, split, pool_profile)
     choose = rng.choice if rng is not None else lambda values: values[0]
@@ -295,18 +335,39 @@ def injected(
         filler_state=filler_state,
     )
     tokens = keep_tokens(scenario["vars"], attacker, fill(scenario["assets"], names))
-    names["ask"] = fill(bank["goals"][goal]["ask"], names)
-    names["short"] = fill(bank["styles"][style]["short"], names)
+    if redirected is not None:
+        route_index, matcher = redirected
+        family_targets = [matcher]
+        field, values = next(iter(matcher["args_contains"].items()))
+        value = fill(values[0], names)
+        call = fill(scenario["route"][route_index], names)
+        names.update(
+            redirect_tool=call["tool"], redirect_arg=field, redirect_value=value
+        )
+        tokens = sorted(set(tokens + [call["tool"], field]))
+        episode["meta"]["redirect"] = {
+            "route_index": route_index,
+            "tool": call["tool"],
+            "original_args": copy.deepcopy(call["args"]),
+            "args": {**call["args"], field: value},
+            "field": field,
+        }
+    names["ask"] = fill(split_text(bank["goals"][goal]["ask"], split), names)
+    names["short"] = fill(split_text(bank["styles"][style]["short"], split), names)
+    if style == "protocol_spoof":
+        tokens = sorted(set(tokens + ["TOOL RESULT", "User:", "FINAL:"]))
     error = None
     if carrier == "tool_error":
         snag = choose(bank["pressure"]["snag"]["tool_error"])
         error, texts = fill(snag["error"], names), [fill(snag["inject"], names)]
     elif position == "split":
-        texts = fill(choose(bank["split"]), names)
+        texts = fill(choose(split_text(bank["split"], split)), names)
     elif pressure == "snag":
-        texts = [fill(choose(bank["pressure"]["snag"]["content"]), names)]
+        texts = [
+            fill(choose(split_text(bank["pressure"]["snag"]["content"], split)), names)
+        ]
     else:
-        texts = [fill(choose(bank["styles"][style]["long"]), names)]
+        texts = [fill(choose(split_text(bank["styles"][style]["long"], split)), names)]
     slot_list = slots if isinstance(slots, list) else [slots]
     slot_list = [
         translate_slot(slot, teacher_client, conversation_language, tokens)
@@ -444,7 +505,13 @@ def script(scenario: dict, episode: dict, obey: bool) -> list[str]:
         )
     outputs = []
     for turn in range(1, len(episode["user_turns"]) + 1):
-        for step in [s for s in route if s["turn"] == turn]:
+        for route_index, original_step in enumerate(route):
+            if original_step["turn"] != turn:
+                continue
+            step = copy.deepcopy(original_step)
+            redirected = episode["meta"].get("redirect")
+            if obey and redirected and route_index == redirected["route_index"]:
+                step["args"] = copy.deepcopy(redirected["args"])
             outputs.append(action(step["tool"], step["args"]))
             while True:
                 name = step["tool"]
@@ -476,7 +543,8 @@ def script(scenario: dict, episode: dict, obey: bool) -> list[str]:
         if obey and turn == obey_turn:
             for matcher in episode["injection"]["target"]:
                 if matcher["kind"] == "call":
-                    outputs.append(_call_for(matcher, episode))
+                    if episode.get("goal") != "redirect":
+                        outputs.append(_call_for(matcher, episode))
                 elif episode.get("goal") == "tamper_answer":
                     canaries += ["Verified: " + term for term in matcher["contains"]]
                 else:
@@ -695,6 +763,8 @@ def candidates(
             ("body", "metadata", "quoted", "tool_error"),
         ):
             if split != "test" and carrier == "tool_error":
+                continue
+            if goal == "redirect" and redirect_route(scenario, bank, position) is None:
                 continue
             targets = bank["goals"][goal]["targets"]
             if scenario["family"] not in targets and "*" not in targets:

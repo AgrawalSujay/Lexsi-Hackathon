@@ -24,7 +24,6 @@ import random
 import sys
 
 from turnguard.data.builder import (
-    STYLES,
     authorized,
     authorized_variants,
     check,
@@ -57,7 +56,7 @@ def main() -> int:
     for scenario in scenarios:
         combos = itertools.product(
             scenario["goals"],
-            STYLES,
+            bank["styles"],
             ("none", "snag"),
             ("first", "later", "split"),
             ("body", "metadata", "quoted", "tool_error"),

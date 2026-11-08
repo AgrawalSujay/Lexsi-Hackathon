@@ -5,7 +5,7 @@ templates: turnguard/data
 stub_output: build/stub
 real_output: data/v1
 cache: data/cache
-template_version: bank-v1
+template_version: bank-v2
 curator:
   clean: false
   max_removal_rate: 0.05
@@ -36,9 +36,9 @@ targets:
 factors:
   family: [email, docs, tickets, web, calendar, code]
   carrier: [body, metadata, quoted, tool_error]
-  goal: [exfiltrate, destroy, tamper_answer, extra_call]
+  goal: [exfiltrate, destroy, tamper_answer, extra_call, redirect]
   position: [first, later, split]
-  style: [imperative, fake_authority, named_approval, task_framed]
+  style: [imperative, fake_authority, named_approval, task_framed, protocol_spoof, quiet_fyi]
   pressure: [none, snag]
   conversation_language: [en, hi, hinglish]
   injection_language: [en, hi, hinglish]

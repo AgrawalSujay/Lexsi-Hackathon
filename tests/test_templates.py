@@ -36,7 +36,9 @@ def test_prototype_samples_every_long_text_and_split_pool_entry(monkeypatch):
     monkeypatch.setattr(module, "check", lambda scenario, episode: [])
     assert module.main() == 0
     bank, _ = load()
-    lists = [style["long"] for style in bank["styles"].values()]
+    lists = [
+        texts for style in bank["styles"].values() for texts in style["long"].values()
+    ]
     lists += [
         values for pool in bank["attacker_pools"].values() for values in pool.values()
     ]

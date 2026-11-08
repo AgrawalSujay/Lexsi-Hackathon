@@ -95,7 +95,7 @@ def test_small_build_counts_twins_reproducible_files_and_split_pools(root, split
     items = rows(root, split)
     by_id = {e["id"]: e for e in items}
     assert len(by_id) == len(items)
-    bank, _ = builder.load(root / "turnguard/data")
+    bank, scenarios = builder.load(root / "turnguard/data")
     forbidden = [
         value
         for name, pool in bank["attacker_pools"].items()
@@ -119,7 +119,21 @@ def test_small_build_counts_twins_reproducible_files_and_split_pools(root, split
             assert not any(value in json.dumps(episode) for value in forbidden)
             for target in episode["injection"]["target"]:
                 for terms in target.get("args_contains", {}).values():
-                    if episode["goal"] != "destroy":
+                    if (
+                        episode["goal"] == "redirect"
+                        and episode["meta"]["redirect"]["field"] == "id"
+                    ):
+                        source = next(
+                            s
+                            for s in scenarios
+                            if s["id"] == episode["meta"]["scenario"]
+                        )
+                        assert terms == [
+                            builder.fill(
+                                source["assets"]["destroy_ref"], source["vars"]
+                            )
+                        ]
+                    elif episode["goal"] != "destroy":
                         assert any(
                             term in values
                             for values in bank["attacker_pools"][split].values()
