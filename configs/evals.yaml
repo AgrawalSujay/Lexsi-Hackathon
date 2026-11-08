@@ -20,7 +20,7 @@ xstest:
     max_retries: 1
     num_retries: 0
     drop_params: false
-    extra_body: {}
+    extra_body: {reasoning: {enabled: false}}
 global_mmlu:
   dataset: CohereLabs/Global-MMLU-Lite
   revision: 36c2fd756f19ccf13a9a96c8e53ccecc02192b8b
