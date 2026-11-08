@@ -1,0 +1,30 @@
+seed: 1234
+batch_size: 8
+models_config: configs/models.yaml
+arms_config: configs/arms.yaml
+xstest:
+  dataset: Paul/XSTest
+  revision: f600c994b256f12867dfa5b3eb3d545a3e62f8b5
+  file: xstest_prompts.csv
+  license: cc-by-4.0
+  expected_counts: {safe: 250, unsafe: 200}
+  max_new_tokens: 256
+  classifier_version: xstest-regex-v1
+  judge_prompt_version: xstest-judge-v1
+  judge_cache: data/cache/xstest
+  judge_sampling:
+    temperature: 0
+    top_p: 1
+    max_tokens: 32
+    timeout: 45
+    max_retries: 1
+    num_retries: 0
+    drop_params: false
+    extra_body: {}
+# Dataset identity reserved now; implementation follows at the next cowork stop.
+global_mmlu:
+  dataset: CohereLabs/Global-MMLU-Lite
+  revision: 36c2fd756f19ccf13a9a96c8e53ccecc02192b8b
+  languages: [en, hi]
+  split: test
+  max_new_tokens: 16

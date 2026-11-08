@@ -4,10 +4,12 @@ import argparse
 import glob
 import hashlib
 import json
+from dataclasses import asdict
 from pathlib import Path
 
 import yaml
 
+from turnguard.arms.runtime import resolve_arm
 from turnguard.config import load_config
 from turnguard.harness import run_episodes
 from turnguard.metrics import compute_metrics
@@ -38,6 +40,7 @@ def _run(args: argparse.Namespace) -> int:
         problems = validate_episode(spec, twins=by_id)
         if problems:
             raise ValueError(f"{spec.id}: {'; '.join(problems)}")
+    arm_spec = resolve_arm(args.arm, load_config(args.arms_config))
     script_info = {}
     decoding = config["decoding"]
     batch_size = (
@@ -77,8 +80,13 @@ def _run(args: argparse.Namespace) -> int:
             batch_size=batch_size,
             seed=config["seed"],
         )
+    arm_spec.apply(generator)
     decoding = config["decoding"]
-    extra = config.get("system_extra")
+    extra = arm_spec.system_prompt
+    if extra is None:
+        extra = config.get("system_extra")
+    elif config.get("system_extra") not in (None, extra):
+        raise ValueError("system_extra conflicts with the configured arm prompt")
     if extra is not None and not isinstance(extra, str):
         raise ValueError("system_extra must be a string or null")
     records = run_episodes(
@@ -94,6 +102,7 @@ def _run(args: argparse.Namespace) -> int:
         **config,
         "config_path": str(config_path),
         "arm": args.arm,
+        "arm_config": asdict(arm_spec),
         "split": args.split,
         "generator": args.generator,
         "model": generator.name,
@@ -149,6 +158,102 @@ def _run(args: argparse.Namespace) -> int:
     return int(any("error" in record.result for record in records))
 
 
+def _eval_xstest(args: argparse.Namespace) -> int:
+    from turnguard.evals.xstest import (
+        CLASSIFIER_VERSION,
+        auditkit_scores,
+        evaluate_xstest,
+        load_items,
+        select_items,
+        teacher_judge,
+    )
+
+    root = Path(__file__).resolve().parents[1]
+    config_path = Path(args.config).resolve()
+    config = load_config(config_path)
+    eval_config = config["xstest"]
+    if eval_config["classifier_version"] != CLASSIFIER_VERSION:
+        raise ValueError("Unsupported XSTest classifier version")
+    if eval_config["max_new_tokens"] != 256:
+        raise ValueError("XSTest requires max_new_tokens=256")
+    if args.limit is not None and args.limit < 1:
+        raise ValueError("limit must be a positive integer")
+    arms_path = (
+        Path(args.arms_config) if args.arms_config else root / config["arms_config"]
+    )
+    arm_spec = resolve_arm(args.arm, load_config(arms_path))
+    model_config = load_config(root / config["models_config"])
+    items = select_items(
+        load_items(eval_config, cache_dir=root / ".cache/hf"),
+        args.limit,
+        seed=config["seed"],
+    )
+    classifier, client = (
+        teacher_judge(root, eval_config) if args.judge == "teacher" else (None, None)
+    )
+    generator = HFGenerator(
+        model_config["models"][args.model],
+        max_new_tokens=256,
+        batch_size=config["batch_size"],
+        seed=config["seed"],
+    )
+    arm_spec.apply(generator)
+    run_dir = new_run_dir(args.arm, args.model, "xstest", root=args.root)
+    resolved = {
+        **config,
+        "config_path": str(config_path),
+        "benchmark": "xstest",
+        "model_key": args.model,
+        "model": generator.name,
+        "arm": args.arm,
+        "arm_config": asdict(arm_spec),
+        "judge": args.judge,
+        "limit": args.limit,
+        "selected_ids": [item.id for item in items],
+        "decoding": {
+            "do_sample": False,
+            "max_new_tokens": 256,
+            "chat_template": "tokenizer",
+            "padding_side": "left",
+        },
+    }
+    if client:
+        resolved["judge_config"] = {
+            "model": client.model,
+            "api_base": client.api_base,
+            "sampling": client.sampling,
+            "prompt_version": client.template_version,
+        }
+    (run_dir / "config.yaml").write_text(
+        yaml.safe_dump(resolved, allow_unicode=True, sort_keys=False), encoding="utf-8"
+    )
+    records, metrics = evaluate_xstest(
+        items,
+        generator,
+        system_prompt=arm_spec.system_prompt,
+        judge=classifier,
+        batch_size=config["batch_size"],
+    )
+    (run_dir / "episodes.jsonl").write_text(
+        "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in records),
+        encoding="utf-8",
+    )
+    (run_dir / "metrics.json").write_text(
+        json.dumps(metrics, indent=2, allow_nan=False) + "\n", encoding="utf-8"
+    )
+    if client:
+        (run_dir / "judge_calls.jsonl").write_text(
+            "".join(json.dumps(row) + "\n" for row in client.history), encoding="utf-8"
+        )
+    audit = auditkit_scores(records, cache_dir=run_dir / ".cache")
+    (run_dir / "auditkit.json").write_text(
+        json.dumps(audit, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
+    print(f"Run directory: {run_dir}")
+    print(json.dumps(metrics, indent=2))
+    return int(metrics["generation_errors"] > 0 or metrics.get("judge_errors", 0) > 0)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="turnguard", description="Evaluate and repair multi-turn prompt injection."
@@ -168,6 +273,10 @@ def main(argv: list[str] | None = None) -> int:
     )
     run.add_argument("--arm", default="A0")
     run.add_argument(
+        "--arms-config",
+        default=str(Path(__file__).resolve().parents[1] / "configs/arms.yaml"),
+    )
+    run.add_argument(
         "--split", choices=("examples", "train", "dev", "test"), required=True
     )
     run.add_argument(
@@ -177,6 +286,21 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument(
         "--root", help="Override the repository root for output under <root>/runs"
     )
+    xstest = commands.add_parser(
+        "eval-xstest", help="Evaluate plain-chat XSTest refusal behavior"
+    )
+    xstest.add_argument("--model", choices=("dev", "headline"), required=True)
+    xstest.add_argument("--arm", default="A0")
+    xstest.add_argument(
+        "--limit", type=int, help="Total items, balanced safe/unsafe for smoke runs"
+    )
+    xstest.add_argument("--judge", choices=("none", "teacher"), default="none")
+    xstest.add_argument(
+        "--config",
+        default=str(Path(__file__).resolve().parents[1] / "configs/evals.yaml"),
+    )
+    xstest.add_argument("--arms-config", help="Override the shared arm configuration")
+    xstest.add_argument("--root", help="Override output root for runs/")
     build = commands.add_parser("build-data", help="Build validated episode specs")
     build.add_argument("--split", choices=("train", "dev", "test"), required=True)
     build.add_argument("--teacher", choices=("stub", "litellm"), required=True)
@@ -199,6 +323,15 @@ def main(argv: list[str] | None = None) -> int:
     for name in ("train", "eval-external", "report"):
         commands.add_parser(name, help="not implemented yet")
     args = parser.parse_args(argv)
+    if args.command == "eval-xstest":
+        try:
+            return _eval_xstest(args)
+        except (ValueError, OSError, KeyError, ImportError, yaml.YAMLError) as error:
+            # Do not echo third-party errors that might contain unsafe text.
+            parser.error(
+                f"XSTest setup/run failed ({type(error).__name__}); "
+                "check configuration and dependencies"
+            )
     if args.command == "freeze":
         from turnguard.data.freeze import freeze_split
 
