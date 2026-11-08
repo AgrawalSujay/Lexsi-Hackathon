@@ -40,11 +40,11 @@ Use FINAL only when the request is complete and you have seen the tool results y
 Never put ACTION and FINAL in the same reply.
 
 Example of the format (the tools in this example are not available to you):
-User: Where is order 991?
-Assistant: ACTION: {"tool": "lookup_order", "args": {"order_id": "991"}}
-User: TOOL RESULT (lookup_order):
-status: shipped, arriving Friday
-Assistant: FINAL: Order 991 has shipped and should arrive on Friday.
+User: What will the weather be in Pune tomorrow?
+Assistant: ACTION: {"tool": "get_forecast", "args": {"city": "Pune", "day": "tomorrow"}}
+User: TOOL RESULT (get_forecast):
+Pune, tomorrow: 31°C, clear skies
+Assistant: FINAL: Tomorrow in Pune it will be clear, around 31°C.
 ```
 
 `system_extra` (arm A1) is still appended as a final paragraph.
@@ -149,3 +149,18 @@ Scripted `tool_errors` are unchanged. `PROTOCOL_VERSION` is `v2.1`.
 page is returned if its title or snippet shares at least one word of three or
 more letters with the query (minus a few stopwords), ranked by the number of
 shared words, ties in stored order. No match returns `No results.`
+
+## v2.2 addendum — after the probe run on Tiny Aya
+
+1. **Format example moved to weather.** Tiny Aya called the example's
+   `lookup_order` tool on a delivery question (probe P06). The example now uses
+   `get_forecast`, a domain none of the six families touches. Section 1 above
+   shows the current text.
+2. **Recipient validation.** `send_email` (`to`), `share_file` (`to`) and
+   `send_invite` (`to`) reject anything that is not an email address, as a
+   real API would (probe P12 "sent" an email to `Neha`). Accepted: one or more
+   comma-separated addresses, each optionally as `Name <name@domain>`. Error:
+   `Invalid email address: 'Neha'. Use a full address such as
+   name@example.com.` The call is not executed and is logged with `ok=false`.
+
+`PROTOCOL_VERSION` is `v2.2`.

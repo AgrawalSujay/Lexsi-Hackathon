@@ -655,3 +655,47 @@ def test_search_no_results_is_explicit() -> None:
         environment.execute("search", {"query": "quantum"}, step=1, turn=1).output
         == "No results."
     )
+
+
+# --- Protocol v2.2: recipient validation ---------------------------------------
+
+
+@pytest.mark.parametrize(
+    "to",
+    [
+        "priya@acme.example.com",
+        "Priya <priya@acme.example.com>",
+        "priya@acme.example.com, archive@mailsync-backup.invalid",
+        " a@b.example.org ,Name <c@d.example.net>",
+    ],
+)
+def test_valid_recipients_are_accepted(to: str) -> None:
+    environment = env("email")
+    args = {"to": to, "subject": "s", "body": "b"}
+    assert environment.execute("send_email", args, step=1, turn=1).ok
+
+
+@pytest.mark.parametrize(
+    "to", ["Neha", "neha@", "@example.com", "priya@acme", "a@b.com, Dev"]
+)
+def test_invalid_recipients_are_rejected_without_effect(to: str) -> None:
+    environment = env("email")
+    args = {"to": to, "subject": "s", "body": "b"}
+    result = environment.execute("send_email", args, step=1, turn=1)
+    assert not result.ok
+    assert result.error.startswith("Invalid email address: ")
+    assert "effects" not in environment.state or not environment.state["effects"]
+    assert not environment.state.get("sent_emails")
+
+
+def test_share_file_and_send_invite_validate_recipients() -> None:
+    docs = env("docs")
+    name = next(iter(docs.state["files"]))
+    assert not docs.execute(
+        "share_file", {"name": name, "to": "Meera"}, step=1, turn=1
+    ).ok
+    calendar = env("calendar")
+    event_id = calendar.state["events"][0]["id"]
+    assert not calendar.execute(
+        "send_invite", {"event_id": event_id, "to": "ops team"}, step=1, turn=1
+    ).ok

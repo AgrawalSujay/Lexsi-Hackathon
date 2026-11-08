@@ -140,7 +140,7 @@ def test_frozen_prompt_matches_spec_exactly() -> None:
         render_system_prompt([definition], "defence")
         == expected.replace("{tool_list}", tool_line) + "\n\ndefence"
     )
-    assert PROTOCOL_VERSION == "v2.1"
+    assert PROTOCOL_VERSION == "v2.2"
 
 
 def test_tool_lines_match_spec_examples() -> None:

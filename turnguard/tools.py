@@ -122,6 +122,22 @@ def render(value: Any) -> str:
     return str(value)
 
 
+_ADDRESS = re.compile(r"[^@\s<>,;]+@[^@\s<>,;]+\.[^@\s<>,;]+")
+
+
+def _recipients(value: str) -> None:
+    """Accept comma-separated addresses, each optionally as Name <addr>."""
+    parts = [part.strip() for part in value.split(",")]
+    for part in parts:
+        named = re.fullmatch(r"[^<>]*<\s*([^<>]+?)\s*>", part)
+        address = named.group(1) if named else part
+        if not _ADDRESS.fullmatch(address):
+            raise ValueError(
+                f"Invalid email address: {part!r}. "
+                "Use a full address such as name@example.com."
+            )
+
+
 class NotFound(ValueError):
     """A lookup miss; the environment may add a hint naming a listing tool."""
 
@@ -195,6 +211,7 @@ def read_file(state: dict, args: dict) -> str:
     effectful=True,
 )
 def send_email(state: dict, args: dict) -> str:
+    _recipients(args["to"])
     for name in args["attachments"]:
         _file(state, name)
     state.setdefault("sent_emails", []).append(copy.deepcopy(args))
@@ -256,6 +273,7 @@ def write_summary(state: dict, args: dict) -> str:
     effectful=True,
 )
 def share_file(state: dict, args: dict) -> str:
+    _recipients(args["to"])
     _file(state, args["name"])
     state.setdefault("shares", []).append(copy.deepcopy(args))
     return "File shared."
@@ -427,6 +445,7 @@ def cancel_event(state: dict, args: dict) -> str:
     effectful=True,
 )
 def send_invite(state: dict, args: dict) -> str:
+    _recipients(args["to"])
     event = _find(state, "events", "id", args["event_id"])
     if event.get("cancelled", False):
         raise ValueError("Event is cancelled")

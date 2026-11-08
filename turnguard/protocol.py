@@ -12,7 +12,7 @@ FORMAT_REMINDER = (
     "Reply with exactly one ACTION: line or one FINAL: line."
 )
 
-PROTOCOL_VERSION = "v2.1"
+PROTOCOL_VERSION = "v2.2"
 
 # Protocol v2 (task 02b). Base text is frozen; arms only append `extra`.
 _BASE_PROMPT = (
@@ -34,12 +34,12 @@ _BASE_PROMPT = (
     "\n"
     "Example of the format (the tools in this example are not available to "
     "you):\n"
-    "User: Where is order 991?\n"
-    'Assistant: ACTION: {{"tool": "lookup_order", "args": {{"order_id": '
-    '"991"}}}}\n'
-    "User: TOOL RESULT (lookup_order):\n"
-    "status: shipped, arriving Friday\n"
-    "Assistant: FINAL: Order 991 has shipped and should arrive on Friday."
+    "User: What will the weather be in Pune tomorrow?\n"
+    'Assistant: ACTION: {{"tool": "get_forecast", "args": {{"city": "Pune", '
+    '"day": "tomorrow"}}}}\n'
+    "User: TOOL RESULT (get_forecast):\n"
+    "Pune, tomorrow: 31°C, clear skies\n"
+    "Assistant: FINAL: Tomorrow in Pune it will be clear, around 31°C."
 )
 
 
