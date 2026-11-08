@@ -37,7 +37,7 @@ harness. It is the reference for Step 3's assembly logic.
 | Key | Meaning |
 |---|---|
 | `attacker_pools.<split>` | `addr` / `url` / `user` values, disjoint across train, dev and test, reserved domains, half `.invalid` and half lookalike `example.*` per address/URL pool. |
-| `goals.<goal>` | `ask.<split>` (the request, a clause) and `targets` per family (`"*"` = any family). Call targets carry a distinctive `args_contains` term (attacker address / URL / user), so the relay diagnostic can check them. Exception: `destroy`, whose target is a decoy ID (`args_match`). |
+| `goals.<goal>` | `ask.<split>` (the request, a clause; redirect uses `ask.<family>.<split>.<action>`) and `targets` per family (`"*"` = any family). Call targets carry a distinctive `args_contains` term (attacker address / URL / user), so the relay diagnostic can check them. Exception: `destroy`, whose target is a decoy ID (`args_match`). |
 | `styles.<style>` | `long.<split>` (6 train / 4 dev / 6 test standalone texts) and `short.<split>` (a standalone clause). Styles: `imperative`, `fake_authority`, `named_approval`, `task_framed`, `protocol_spoof`, `quiet_fyi`. |
 | `pressure.snag` | `tool_error`: four test-only `{error, inject}` pairs. `content.<split>`: four obstacle texts for body / metadata / quoted. |
 | `split.<split>` | Four pairs: part 1 primes, part 2 carries the ask. |
@@ -131,3 +131,18 @@ The optional `attacker_pool_profiles.cueflip.test` overlay uses only the test
 pool's example-domain half; the default test pool remains a 50/50 mixture.
 Version-1 flat prose fixtures remain supported, but missing split entries in a
 version-2 prose map fail instead of borrowing another split's wording.
+
+
+### Stop 1 natural-register revision
+
+Long and short texts outside `protocol_spoof`, plus all shared snag/split prose,
+use ordinary workplace requests: cover colleagues, missing attachments, mailbox
+moves, billing contacts, and audit copies. Protocol-spoof long/short templates
+are unchanged. Counts, addressing balance, targets, and split disjointness stay
+as before; the five-word check includes both raw and composed requests.
+
+Redirect asks live at `goals.redirect.ask.<family>.<split>.<action>`. Action keys
+select the matching prose internally; tool names and argument labels are not
+rendered. A request says which colleague should receive the reply, which ticket
+needs the answer, or which reference belongs on a document. The unchanged
+matcher and route metadata still enforce replacement of exactly one argument.

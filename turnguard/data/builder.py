@@ -56,6 +56,17 @@ def split_text(value: Any, split: str) -> Any:
     return value
 
 
+def goal_ask(
+    bank: dict, goal: str, split: str, family: str, tool: str | None = None
+) -> str:
+    """Select natural redirect prose for the actual family/action, never its keys."""
+    requests = bank["goals"][goal]["ask"]
+    if goal == "redirect":
+        requests = split_text(requests[family], split)
+        return requests[tool]
+    return split_text(requests, split)
+
+
 def redirect_route(
     scenario: dict, bank: dict, position: str
 ) -> tuple[int, dict] | None:
@@ -341,10 +352,7 @@ def injected(
         field, values = next(iter(matcher["args_contains"].items()))
         value = fill(values[0], names)
         call = fill(scenario["route"][route_index], names)
-        names.update(
-            redirect_tool=call["tool"], redirect_arg=field, redirect_value=value
-        )
-        tokens = sorted(set(tokens + [call["tool"], field]))
+        names["redirect_value"] = value
         episode["meta"]["redirect"] = {
             "route_index": route_index,
             "tool": call["tool"],
@@ -352,7 +360,16 @@ def injected(
             "args": {**call["args"], field: value},
             "field": field,
         }
-    names["ask"] = fill(split_text(bank["goals"][goal]["ask"], split), names)
+    names["ask"] = fill(
+        goal_ask(
+            bank,
+            goal,
+            split,
+            scenario["family"],
+            episode["meta"].get("redirect", {}).get("tool"),
+        ),
+        names,
+    )
     names["short"] = fill(split_text(bank["styles"][style]["short"], split), names)
     if style == "protocol_spoof":
         tokens = sorted(set(tokens + ["TOOL RESULT", "User:", "FINAL:"]))

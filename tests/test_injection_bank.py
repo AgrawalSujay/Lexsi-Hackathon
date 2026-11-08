@@ -1,5 +1,6 @@
 """C3 bank content checks: disjoint prose, balanced cues and real call tampering."""
 
+import hashlib
 import itertools
 import json
 import random
@@ -20,10 +21,18 @@ SPLITS = ("train", "dev", "test")
 def composed_texts(bank: dict, split: str) -> list[str]:
     """Compare authored prose, excluding scenario/pool substitutions."""
     texts = []
-    for goal, style in itertools.product(
-        bank["goals"].values(), bank["styles"].values()
-    ):
-        names = {"ask": goal["ask"][split]}
+    asks = []
+    for goal, spec in bank["goals"].items():
+        if goal == "redirect":
+            asks.extend(
+                text
+                for family in spec["ask"].values()
+                for text in family[split].values()
+            )
+        else:
+            asks.append(spec["ask"][split])
+    for ask, style in itertools.product(asks, bank["styles"].values()):
+        names = {"ask": ask}
         names["short"] = builder.fill(style["short"][split], names)
         texts += style["long"][split] + [style["short"][split]]
         texts += builder.fill(style["long"][split], names)
@@ -299,3 +308,66 @@ def test_redirect_does_not_anticipate_an_unseen_future_user_request():
         scenario = next(s for s in scenarios if s["id"] == name)
         assert builder.redirect_route(scenario, bank, "first") is None
         assert builder.redirect_route(scenario, bank, "later") is not None
+
+
+def test_protocol_spoof_style_is_unchanged_from_stop1():
+    bank, _ = builder.load()
+    digest = hashlib.sha256(
+        json.dumps(bank["styles"]["protocol_spoof"], sort_keys=True).encode()
+    ).hexdigest()
+    assert digest == "4cb309c3f5ea3e39e70772ebf5718e8ecaf5098263a88b9fee63a83cba9cba96"
+
+
+def test_nonprotocol_prose_does_not_reintroduce_system_jargon():
+    bank, _ = builder.load()
+    jargon = re.compile(
+        r"\b(?:insertion|operation|operations|routing annotation|governance|"
+        r"handling adjustment|handling amendment|workflow|prerequisite|"
+        r"control-plane|dispatch)\b",
+        re.I,
+    )
+    texts = []
+
+    def collect(value):
+        if isinstance(value, str):
+            texts.append(value)
+        elif isinstance(value, dict):
+            for child in value.values():
+                collect(child)
+        elif isinstance(value, list):
+            for child in value:
+                collect(child)
+
+    for style, spec in bank["styles"].items():
+        if style != "protocol_spoof":
+            collect(spec)
+    collect(bank["goals"])
+    collect(bank["pressure"])
+    collect(bank["split"])
+    assert not [
+        (text, jargon.search(text).group()) for text in texts if jargon.search(text)
+    ]
+
+
+@pytest.mark.parametrize(
+    "family", ["email", "docs", "tickets", "web", "calendar", "code"]
+)
+def test_every_family_redirect_ask_uses_human_words_for_each_supported_action(family):
+    bank, _ = builder.load()
+    for split in SPLITS:
+        requests = bank["goals"]["redirect"]["ask"][family][split]
+        assert set(requests) == {
+            matcher["tool"] for matcher in bank["goals"]["redirect"]["targets"][family]
+        }
+        for tool, text in requests.items():
+            assert builder.goal_ask(bank, "redirect", split, family, tool) == text
+            assert "{redirect_value}" in text
+            assert not re.search(
+                r"\b(?:argument|parameter|redirect_tool|redirect_arg)\b", text, re.I
+            )
+            assert not any(
+                re.search(r"\b" + re.escape(name) + r"\b", text)
+                for name in builder.REGISTRY[family]
+                if "_" in name
+            )
+            assert "_" not in re.sub(r"\{\w+\}", "", text)
