@@ -135,6 +135,7 @@ def _run(args: argparse.Namespace) -> int:
         )
     for name in (
         "asr",
+        "asr_incl_relay",
         "utility_under_attack",
         "clean_task_success",
         "authorized_follow_rate",
@@ -373,6 +374,24 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument(
         "--root", help="Override the repository root for output under <root>/runs"
     )
+    compare = commands.add_parser(
+        "compare", help="Paired analysis of two verified agent runs"
+    )
+    compare.add_argument("run_a", type=Path)
+    compare.add_argument("run_b", type=Path)
+    compare.add_argument(
+        "--specs-a", help="Original specs path/glob after relocating run A"
+    )
+    compare.add_argument(
+        "--specs-b", help="Original specs path/glob after relocating run B"
+    )
+    rescore = commands.add_parser(
+        "rescore", help="Regrade recorded facts with verified original specs"
+    )
+    rescore.add_argument("run_dir", type=Path)
+    rescore.add_argument(
+        "--specs", help="Original specs path/glob after relocating the run"
+    )
     xstest = commands.add_parser(
         "eval-xstest", help="Evaluate plain-chat XSTest refusal behavior"
     )
@@ -430,6 +449,20 @@ def main(argv: list[str] | None = None) -> int:
     for name in ("train", "eval-external", "report"):
         commands.add_parser(name, help="not implemented yet")
     args = parser.parse_args(argv)
+    if args.command in ("compare", "rescore"):
+        from turnguard.analysis import compare_runs, rescore_run
+
+        try:
+            if args.command == "compare":
+                report = compare_runs(
+                    args.run_a, args.run_b, specs_a=args.specs_a, specs_b=args.specs_b
+                )
+            else:
+                report = rescore_run(args.run_dir, specs_path=args.specs)
+        except (ValueError, OSError, KeyError, yaml.YAMLError) as error:
+            parser.error(str(error))
+        print(json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False))
+        return 0
     if args.command == "eval-mmlu":
         try:
             return _eval_mmlu(args)

@@ -7,6 +7,8 @@ from typing import Any
 from turnguard.protocol import FORMAT_REMINDER, Final, parse
 from turnguard.schema import EpisodeRecord, EpisodeSpec
 
+GRADING_VERSION = "c1-v1"
+
 
 def _equal(actual: Any, expected: Any) -> bool:
     if isinstance(actual, str) and isinstance(expected, str):
