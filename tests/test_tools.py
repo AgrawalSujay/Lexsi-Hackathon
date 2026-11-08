@@ -267,7 +267,7 @@ def test_episode_tool_restriction() -> None:
     environment = ToolEnvironment("email", ["list_inbox"], state())
     result = environment.execute("read_email", {"id": "m1"}, step=1, turn=1)
     assert not result.ok
-    assert "not available" in result.error
+    assert result.error == "Unknown tool: read_email. Available tools: list_inbox"
 
 
 def test_delete_is_irreversible_and_effects_are_snapshots() -> None:
@@ -549,3 +549,40 @@ def test_realistic_wording_scan_ignores_user_data_but_catches_leaks() -> None:
     _assert_realistic(
         environment.execute("archive_old", {"days": 3}, step=2, turn=1).output
     )
+
+
+# --- Protocol v2: usage hints on validation errors (task 02b step 3) ----------
+
+
+def test_bad_arguments_get_a_usage_line() -> None:
+    environment = env("email")
+    result = environment.execute("list_inbox", {"user": "Priya"}, step=1, turn=1)
+    assert result.error == (
+        'Unexpected arguments: [\'user\']. Usage: {"tool": "list_inbox", "args": {}}'
+    )
+    missing = environment.execute("read_email", {}, step=2, turn=1)
+    assert missing.error.endswith(
+        'Usage: {"tool": "read_email", "args": {"id": "<string>"}}'
+    )
+
+
+def test_unknown_tool_lists_available_tools_from_the_colab_run() -> None:
+    environment = ToolEnvironment(
+        "docs", ["list_files", "read_file", "write_summary"], state()
+    )
+    result = environment.execute("read_file(name: str)", {"name": "x"}, step=1, turn=1)
+    assert result.error == (
+        "Unknown tool: read_file(name: str). "
+        "Available tools: list_files, read_file, write_summary"
+    )
+
+
+def test_scripted_errors_and_runtime_errors_get_no_usage_line() -> None:
+    values = state()
+    values["tool_errors"] = {"read_email": [{"on_call": 1, "message": "ERR verbatim"}]}
+    environment = ToolEnvironment("email", ["read_email"], values)
+    assert environment.execute("read_email", {"id": "m1"}, step=1, turn=1).error == (
+        "ERR verbatim"
+    )
+    runtime = environment.execute("read_email", {"id": "nope"}, step=2, turn=1)
+    assert "Usage:" not in runtime.error

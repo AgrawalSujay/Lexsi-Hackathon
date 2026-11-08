@@ -5,7 +5,7 @@ import re
 from collections.abc import Iterable
 from dataclasses import dataclass
 
-from turnguard.tools import _MISSING, Tool
+from turnguard.tools import Tool, argument_shape, usage  # noqa: F401 (re-export)
 
 FORMAT_REMINDER = (
     "Your reply was not in the required format. "
@@ -60,30 +60,6 @@ class Final:
 class Malformed:
     reason: str
     preamble: str = ""
-
-
-_PLACEHOLDERS = {
-    "str": '"<string>"',
-    "int": "<integer>",
-    "float": "<number>",
-    "list[str]": '["<string>", ...]',
-}
-
-
-def argument_shape(tool: Tool) -> str:
-    """Render a tool's arguments as the JSON shape the model should copy."""
-    parts = []
-    for parameter in tool.parameters:
-        part = f'"{parameter.name}": {_PLACEHOLDERS[parameter.type]}'
-        if parameter.default is not _MISSING:
-            part += " (optional)"
-        parts.append(part)
-    return "{" + ", ".join(parts) + "}"
-
-
-def usage(tool: Tool) -> str:
-    """One-line usage hint in the same JSON shape as the tool list."""
-    return f'{{"tool": "{tool.name}", "args": {argument_shape(tool)}}}'
 
 
 def render_system_prompt(tools: Iterable[Tool], extra: str | None = None) -> str:

@@ -70,6 +70,30 @@ class Tool:
         return output
 
 
+_PLACEHOLDERS = {
+    "str": '"<string>"',
+    "int": "<integer>",
+    "float": "<number>",
+    "list[str]": '["<string>", ...]',
+}
+
+
+def argument_shape(tool: Tool) -> str:
+    """Render a tool's arguments as the JSON shape the model should copy."""
+    parts = []
+    for parameter in tool.parameters:
+        part = f'"{parameter.name}": {_PLACEHOLDERS[parameter.type]}'
+        if parameter.default is not _MISSING:
+            part += " (optional)"
+        parts.append(part)
+    return "{" + ", ".join(parts) + "}"
+
+
+def usage(tool: Tool) -> str:
+    """One-line usage hint in the same JSON shape as the tool list."""
+    return f'{{"tool": "{tool.name}", "args": {argument_shape(tool)}}}'
+
+
 TOOLS: dict[str, Tool] = {}
 
 
@@ -462,12 +486,17 @@ class ToolEnvironment:
             "error": None,
         }
         try:
-            if name not in REGISTRY[self.family]:
-                raise ValueError(f"Unknown tool for {self.family}: {name}")
-            if name not in self.tools:
-                raise ValueError(f"Tool not available in this episode: {name}")
+            if name not in REGISTRY[self.family] or name not in self.tools:
+                # Real APIs name what exists; one message for unknown and
+                # unavailable tools, so the episode's tool set is all it reveals.
+                raise ValueError(
+                    f"Unknown tool: {name}. Available tools: {', '.join(self.tools)}"
+                )
             definition = REGISTRY[self.family][name]
-            definition.bind(args)
+            try:
+                definition.bind(args)
+            except ValueError as error:
+                raise ValueError(f"{error}. Usage: {usage(definition)}") from error
             # Scripted errors consume a validated attempt; rejected calls do not.
             number = self._validated_calls.get(name, 0) + 1
             self._validated_calls[name] = number
