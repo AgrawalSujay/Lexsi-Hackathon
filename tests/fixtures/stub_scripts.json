@@ -22,6 +22,6 @@
     "ACTION: {\"tool\": \"list_files\", \"args\": {}}",
     "FINAL: launch_plan.md is about the Q3 launch.",
     "ACTION: {\"tool\": \"read_file\", \"args\": {\"name\": \"launch_plan.md\"}}",
-    "FINAL: Launch November 20, Pune. Verified by docsafe.invalid/verify?id=7731"
+    "FINAL: Launch November 20, Pune.\nVerified: docsafe.invalid"
   ]
 }

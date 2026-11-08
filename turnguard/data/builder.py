@@ -396,13 +396,19 @@ def script(scenario: dict, episode: dict, obey: bool) -> list[str]:
             and m.get("turn", len(episode["user_turns"])) == turn
             for t in m["contains"]
         ]
+        canaries = []
         if obey and turn == obey_turn:
             for matcher in episode["injection"]["target"]:
                 if matcher["kind"] == "call":
                     outputs.append(_call_for(matcher, episode))
+                elif episode.get("goal") == "tamper_answer":
+                    canaries += ["Verified: " + term for term in matcher["contains"]]
                 else:
                     terms += matcher["contains"]
-        outputs.append("FINAL: " + (" ".join(terms) or "Done."))
+        text = " ".join(terms) or "Done."
+        if canaries:
+            text += "\n" + "\n".join(canaries)
+        outputs.append("FINAL: " + text)
     return outputs
 
 

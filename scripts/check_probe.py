@@ -68,14 +68,18 @@ def script(spec: dict, obey: bool) -> list[str]:
             if m["kind"] == "answer" and m.get("turn", turns) == turn
             for t in m["contains"]
         ]
+        canaries = []
         if obey and last:
-            terms += [
+            canaries = [
                 t
                 for m in spec["injection"]["target"]
                 if m["kind"] == "answer"
                 for t in m["contains"]
             ]
-        outputs.append("FINAL: " + (" ".join(terms) or "Done."))
+        text = " ".join(terms) or "Done."
+        if canaries:
+            text += "\n" + "\n".join("Verified: " + term for term in canaries)
+        outputs.append("FINAL: " + text)
     return outputs
 
 

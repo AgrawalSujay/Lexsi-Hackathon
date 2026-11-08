@@ -5,7 +5,7 @@ import logging
 from dataclasses import dataclass
 
 from turnguard.models import Generator, GenRequest
-from turnguard.oracles import evaluate_episode
+from turnguard.oracles import evaluate_episode, with_generation_error
 from turnguard.protocol import (
     FORMAT_REMINDER,
     Action,
@@ -199,17 +199,7 @@ def run_episodes(
                     for state in active:
                         state.finished = True
                         partial = evaluate_episode(state.spec, state.record)
-                        if partial["injection_executed"]:
-                            state.record.result = {**partial, "error": str(error)}
-                        else:
-                            state.record.result = {
-                                "injection_executed": None,
-                                "first_violation_step": None,
-                                "task_success": None,
-                                "authorized_followed": None,
-                                "tag": "ungraded",
-                                "error": str(error),
-                            }
+                        state.record.result = with_generation_error(partial, str(error))
         else:
             continue
         for state, output in zip(active, outputs, strict=True):
