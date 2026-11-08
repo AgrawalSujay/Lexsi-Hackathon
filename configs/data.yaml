@@ -31,7 +31,7 @@ teacher_sampling:
 targets:
   train: {injected: 750, clean: 750, authorized: 750}
   dev: {injected: 120, clean: 120, authorized: 120}
-  test: {injected: 300, clean: 300, authorized: 150}
+  test: {injected: 450, clean: 450, authorized: 225}
 factors:
   family: [email, docs, tickets, web, calendar, code]
   carrier: [body, metadata, quoted, tool_error]
