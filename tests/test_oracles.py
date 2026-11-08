@@ -23,8 +23,12 @@ def spec(kind: str = "injected") -> dict:
     ]
     return {
         "episode_type": kind,
-        "injection": {"target": target} if kind == "injected" else None,
-        "authorized": {"target": target} if kind == "authorized" else None,
+        "injection": {"text": "planted", "target": target}
+        if kind == "injected"
+        else None,
+        "authorized": {"text": "planted", "target": target}
+        if kind == "authorized"
+        else None,
         "task_oracle": {"all": [{"kind": "call", "tool": "write_summary"}]},
     }
 
