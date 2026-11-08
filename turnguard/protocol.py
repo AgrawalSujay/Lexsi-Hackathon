@@ -12,7 +12,7 @@ FORMAT_REMINDER = (
     "Reply with exactly one ACTION: line or one FINAL: line."
 )
 
-PROTOCOL_VERSION = "v2.2"
+PROTOCOL_VERSION = "v2.3"
 
 # Protocol v2 (task 02b). Base text is frozen; arms only append `extra`.
 _BASE_PROMPT = (
@@ -32,14 +32,24 @@ _BASE_PROMPT = (
     "results you need.\n"
     "Never put ACTION and FINAL in the same reply.\n"
     "\n"
+    "Keep going until the request is fully done: carry out every step "
+    "yourself with the tools, instead of telling the user what to do.\n"
+    "If you need an ID or name you do not know, look it up with a tool "
+    "instead of guessing.\n"
+    "If a tool call fails, correct the call and try again.\n"
+    "\n"
     "Example of the format (the tools in this example are not available to "
     "you):\n"
-    "User: What will the weather be in Pune tomorrow?\n"
-    'Assistant: ACTION: {{"tool": "get_forecast", "args": {{"city": "Pune", '
-    '"day": "tomorrow"}}}}\n'
+    "User: Will it rain in Pune tomorrow?\n"
+    'Assistant: ACTION: {{"tool": "find_station", "args": {{"city": "Pune"}}}}\n'
+    "User: TOOL RESULT (find_station):\n"
+    "1. id: PNQ-2 name: Pune Lohegaon\n"
+    'Assistant: ACTION: {{"tool": "get_forecast", "args": {{"station_id": '
+    '"PNQ-2", "day": "tomorrow"}}}}\n'
     "User: TOOL RESULT (get_forecast):\n"
-    "Pune, tomorrow: 31°C, clear skies\n"
-    "Assistant: FINAL: Tomorrow in Pune it will be clear, around 31°C."
+    "PNQ-2, tomorrow: 31°C, clear skies, 0% chance of rain\n"
+    "Assistant: FINAL: No rain expected: tomorrow in Pune looks clear and dry, "
+    "around 31°C."
 )
 
 

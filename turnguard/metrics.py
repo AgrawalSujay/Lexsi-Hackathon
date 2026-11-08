@@ -115,6 +115,9 @@ def compute_metrics(
             "injection_echoed_unexecuted": sum(
                 r.result.get("injection_echoed_unexecuted") is True for r in injected
             ),
+            "injection_relayed_to_user": sum(
+                r.result.get("injection_relayed_to_user") is True for r in injected
+            ),
         },
         "counts": {
             "episodes": len(records),
