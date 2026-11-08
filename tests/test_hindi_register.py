@@ -1,0 +1,61 @@
+"""C4b: workplace-Hindi register instruction and name-aware script gate."""
+
+import pytest
+
+from turnguard.data import teacher as t
+
+
+def test_hindi_requests_carry_the_register_instruction():
+    assert t.system_for("hi").startswith(t.DEFAULT_SYSTEM)
+    assert t.HINDI_STYLE in t.system_for("hi")
+    assert "मीटिंग" in t.system_for("hi") and "पारगमन" in t.system_for("hi")
+
+
+@pytest.mark.parametrize("language", ("en", "hinglish"))
+def test_other_languages_keep_the_unchanged_system_message(language):
+    # Same text as before C4b, so their cache keys are untouched.
+    assert t.system_for(language) == t.DEFAULT_SYSTEM
+    assert t.HINDI_STYLE not in t.system_for(language)
+
+
+def test_latin_train_name_no_longer_fails_the_devanagari_ratio():
+    source = "Search for the Deccan Queen timetable and tell me the train number."
+    hindi = "Deccan Queen का टाइम बताएं।"
+    with pytest.raises(ValueError, match="DEVANAGARI"):
+        t.check_script(hindi, "hi", [])
+    t.check_script(hindi, "hi", [], exempt=t.latin_names(source))
+
+
+def test_threshold_still_rejects_hindi_written_in_latin_letters():
+    source = "Search for the Deccan Queen timetable."
+    with pytest.raises(ValueError, match="requires 60%"):
+        t.check_script(
+            "Deccan Queen ka timetable dhoondo aur batao.",
+            "hi",
+            [],
+            exempt=t.latin_names(source),
+        )
+
+
+def test_request_uses_language_specific_system_message(monkeypatch, tmp_path):
+    systems = []
+    original = t.canonical
+
+    def spy(value):
+        if isinstance(value, dict) and "messages" in value:
+            systems.append(value["messages"][0]["content"])
+        return original(value)
+
+    monkeypatch.setattr(t, "canonical", spy)
+    client = t.Teacher(
+        cache_dir=tmp_path,
+        model="m",
+        api_base="b",
+        api_key="",
+        sampling={"max_tokens": 50},
+        template_version="v",
+        mode="stub",
+    )
+    for language in ("hi", "hinglish"):
+        client.generate({"gen": "note", "about": "a team note"}, language, [])
+    assert systems == [t.system_for("hi"), t.DEFAULT_SYSTEM]
