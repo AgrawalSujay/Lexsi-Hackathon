@@ -11,7 +11,7 @@ are required and passed explicitly; environment overrides the file. A keyless
 local server can use a nonempty dummy key. Keys are excluded from cache and build
 artifacts. The builder does not modify the environment.
 
-From `~/Downloads/turnguard`:
+From the repo root:
 
 ```sh
 .venv/bin/python -m turnguard build-data --split dev --teacher litellm --limit 5 --dry-run --backtranslate

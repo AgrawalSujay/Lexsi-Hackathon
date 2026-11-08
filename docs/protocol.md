@@ -1,8 +1,5 @@
 # Task 02b — protocol v2 (fixes from the first Tiny Aya run)
 
-Read `AGENTS.md` and `PLAN.md`. Cowork rules apply: plan first, wait for OK,
-stop after each step.
-
 ## Why
 
 The first real run (Tiny Aya, 4 reference episodes, 0 malformed turns out of

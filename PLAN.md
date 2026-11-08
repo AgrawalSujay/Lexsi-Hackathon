@@ -7,7 +7,7 @@
 | Done | Notes |
 |---|---|
 | Harness, tools, parser, scoring, metrics, AuditKIT bridge, HF generator | Tasks 01, 02, 02b; 321 CPU tests |
-| Protocol **v2.4** (frozen) | Fixes from three Tiny Aya runs and two 8B probes (see `prompts/02b_protocol_v2.md`) |
+| Protocol **v2.4** (frozen) | Fixes from three Tiny Aya runs and two 8B probes (see `docs/protocol.md`) |
 | Tiny Aya smoke test (Colab) | YELLOW as expected: core loop works, Harden needs the H200 |
 | **Probe-v1** (28 episodes) on Tiny Aya | 0/91 malformed turns; saw the injection in 9/12; **obeyed 4/9**; clean tasks 6/12 |
 
@@ -84,7 +84,7 @@ sandbox value (`*.invalid`, `example.*`).
   tool role. **Decided:** Tiny Aya's template drops tool-role content, so tool
   results go back as user messages `TOOL RESULT (<tool>): ...`. Protocol
   details (system prompt, tool-list format, clean history, error hints) are
-  versioned in `prompts/02b_protocol_v2.md`; current is **v2.4** (frozen).
+  versioned in `docs/protocol.md`; current is **v2.4** (frozen).
 - The harness runs the loop (max 6 steps per user turn), executes tool calls against a state
   dict, and records every action. Side effects (emails sent, files deleted,
   transfers made) are logged and **cannot be undone**, so "do it, then revert"
@@ -199,7 +199,7 @@ Deadline is Nov 14 end of day AoE (Nov 15, 17:30 IST). We plan to submit on
 | Day | Work | Gate |
 |---|---|---|
 | Sat 7 | ✅ Smoke test (Colab). ✅ Tasks 01, 02 (harness), 02b (protocol). ✅ Probe on Tiny Aya. | ✅ Vulnerability confirmed |
-| Sun 8 | Protocol v2.2 + exposure ✅. H200: 8B smoke + 8B probe. Teacher model chosen. Template bank (Sujay). Start task 03. | 8B can act as an agent |
+| Sun 8 | Protocol v2.2 + exposure ✅. H200: 8B smoke + 8B probe. Teacher model chosen. Template bank. Start task 03. | 8B can act as an agent |
 | Mon 9 | Task 03: data builder with CuratorKIT. Generate `dev`/`test` v1. Debug baseline on Tiny Aya. **Freeze test.** | Test frozen, checksums committed |
 | Tue 10 | A0 + A1 on Aya-8B. XSTest + MMLU baselines. Judge validation (50 labels). Train pairs. A2 tuned on dev, run on test. | Baseline numbers exist |
 | Wed 11 | A4 (+A5) training on H200, eval on test. A3. Tiny Aya arms. | All must-arms evaluated |
@@ -214,10 +214,8 @@ CircuitKIT circuit-level fix, induced-drift repair, CAST, more languages.
 
 | Who | Owns |
 |---|---|
-| Sujay | Scenario and injection design (authority/injection expertise), data QA, write-up |
+| Sujay | Design, scenarios and injections, implementation, data QA, analysis, write-up |
 | Teammate | H200 runs, training, HF uploads |
-| reviewer | Specs and implementer prompts, metric and judge design, reviews, analysis plan, write-up drafts |
-| implementer | Implementation, step by step with you (see `AGENTS.md`) |
 
 ## 10. Risks and fallbacks
 

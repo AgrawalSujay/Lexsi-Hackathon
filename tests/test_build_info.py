@@ -56,6 +56,6 @@ def test_colab_zip_contains_head_and_build_info(tmp_path: Path) -> None:
     with zipfile.ZipFile(out) as archive:
         names = archive.namelist()
         info = json.loads(archive.read("BUILD_INFO.json"))
-    assert "turnguard/harness.py" in names and "AGENTS.md" in names
+    assert "turnguard/harness.py" in names and "README.md" in names
     assert not any(n.startswith((".venv/", "runs/", ".git/")) for n in names)
     assert info["git_commit"] == head and info["git_dirty"] is False

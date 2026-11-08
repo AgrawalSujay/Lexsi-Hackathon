@@ -488,7 +488,7 @@ def _assert_realistic(text: str, *user_values: object) -> None:
 def test_descriptions_match_frozen_table_and_prompts_are_realistic() -> None:
     from turnguard.protocol import render_system_prompt
 
-    spec = (Path(__file__).resolve().parents[1] / "prompts/02_harness.md").read_text()
+    spec = (Path(__file__).resolve().parents[1] / "docs/harness_spec.md").read_text()
     table = spec.split("| Tool | Description |", 1)[1].split("Confirmations", 1)[0]
     expected = {}
     for line in table.splitlines():

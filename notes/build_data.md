@@ -55,7 +55,7 @@ mv data/v1/dev data/v1/dev_smoke_deepseek
 
 Then set `CK_MODEL=openai/qwen3.8-27b` in `.env`, run the same command, and
 `mv data/v1/dev data/v1/dev_smoke_qwen`. Repeat with `openai/glm-5.3`.
-Check the three `summary.json` + `rejected.jsonl`. Delete the smoke
+Compare the three `summary.json` + `rejected.jsonl`. Delete the smoke
 folders once a model is chosen.
 
 ## 3. Full builds

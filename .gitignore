@@ -27,3 +27,7 @@ htmlcov/
 
 # Local teacher credentials.
 /.env
+
+# Local working notes (not part of the project repo)
+AGENTS.md
+prompts/

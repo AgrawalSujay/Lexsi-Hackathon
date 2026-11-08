@@ -32,7 +32,7 @@ target-version = "py312"
 line-length = 88
 
 [tool.ruff.format]
-exclude = ["prompts/**"]
+exclude = ["prompts/**", "docs/**"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP"]

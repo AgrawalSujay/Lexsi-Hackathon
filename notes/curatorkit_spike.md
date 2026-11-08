@@ -1,6 +1,6 @@
 # CuratorKIT exploration — task 03, Step 1 only
 
-**Inspected:** CuratorKIT **0.1.23**, Python 3.12.8, on `task03`
+**Inspected:** CuratorKIT **0.1.23**, Python 3.12.8, on the task 03 branch
 (branch base `ec07a58`). Installed with `.venv/bin/python -m pip install
 'curatorkit[generation]'`; verified with `.venv/bin/python -m pip show curatorkit`
 and `pip check`. All installs and disposable probes live in this worktree's

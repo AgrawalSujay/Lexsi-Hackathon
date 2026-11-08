@@ -1,7 +1,6 @@
 # Task 05: external side-effect evaluations
 
-Implemented on `task05`, based on main `5854465`. XSTest was approved
-and committed as `8f1be69`; Global-MMLU is implemented for the second checkpoint.
+XSTest and Global-MMLU (English, Hindi) side-effect evaluations.
 
 ## Data and scoring
 
@@ -56,7 +55,7 @@ for judge requests only. It requests exactly one of the three labels; invalid
 labels and errors are reported. Cache keys include the full question/response,
 messages, judge model/base, all sampling options and prompt versions, with no
 API key. Judge cache lives at `data/cache/xstest/`. Temperature is 0; retries
-are bounded. No teacher calls were made by implementer. PLAN's human validation of
+are bounded. No teacher calls were made during development. PLAN's human validation of
 judge labels still needs to be done on actual model responses.
 
 ## AuditKIT fit and gaps (1.1.6)
@@ -78,7 +77,7 @@ exceptions are not echoed because they can contain unsafe text.
 
 ## Verification and user-run smoke
 
-From `~/Downloads/turnguard`, CPU only:
+From the repo root, CPU only:
 
 ```sh
 .venv/bin/python -m pytest tests/test_xstest.py tests/test_cli_runs.py tests/test_cli.py -q
@@ -142,13 +141,13 @@ MMLU is scored against answer keys and never calls a teacher. The common
 `--judge` option accepts `none`; choosing `teacher` fails before loading data or
 models, explaining that teacher judging applies only to XSTest.
 
-CPU verification in `~/Downloads/turnguard`:
+CPU verification from the repo root:
 
 ```sh
 .venv/bin/python -m pytest tests/test_global_mmlu.py tests/test_xstest.py -q
 ```
 
-User-run model smoke (implementer has not run it):
+Model smoke (not yet run):
 
 ```sh
 python -m turnguard eval-mmlu --model dev --arm A0 --limit 5

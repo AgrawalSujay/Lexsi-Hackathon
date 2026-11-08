@@ -1,9 +1,5 @@
 # Task 02 — episodes, simulated tools, parser, harness, oracles, core metrics
 
-Read `AGENTS.md` and `PLAN.md` first. Follow the cowork rules (`AGENTS.md`
-§1): plan first and wait for my OK, then build in the step order at the end,
-stopping after each step.
-
 This is the core of the project: everything we report is computed by this
 code, so correctness matters more than features. The four files in
 `data/examples/` are the reference episodes; read them before planning.
@@ -260,8 +256,8 @@ loads with `safetune.runner.utils.model_utils.load_model` / `load_tok`
 template with `add_generation_prompt=True`, left padding, greedy decoding,
 returns only the newly generated text. `intervention` is an optional
 zero-argument callable returning a context manager, entered around each
-`model.generate` call (this is how steering arms plug in later). Do not run
-it yourself — no model downloads (see `AGENTS.md`).
+`model.generate` call (this is how steering arms plug in later). Tests never
+load a real model.
 
 ## 9. CLI
 
@@ -288,7 +284,7 @@ Using the four example episodes and scripted outputs in
 - Validation catches: slot not containing text, matcher tool missing from `tools`.
 - Records are deterministic: same specs + same scripts → identical `episodes.jsonl` (ignoring timestamps).
 
-## Step order (stop after each and report)
+## Build order
 
 1. `schema.py` + validation + tests.
 2. `tools.py` (all six families) + tests.
