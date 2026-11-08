@@ -148,6 +148,9 @@ def test_loaders_padding_greedy_microbatching_and_continuation_slicing(
         assert call["do_sample"] is False
         assert call["num_beams"] == call["num_return_sequences"] == 1
         assert call["return_dict_in_generate"] is False
+        assert call["stop_strings"] == ["\nTOOL RESULT", "\nUser:"]
+        assert call["tokenizer"] is tokenizer
+        assert not any("FINAL" in stop for stop in call["stop_strings"])
     for _, kwargs in tokenizer.templates:
         assert kwargs == {"tokenize": False, "add_generation_prompt": True}
     for _, kwargs, _ in tokenizer.encodings:

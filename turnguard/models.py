@@ -49,6 +49,9 @@ class StubGenerator:
         return outputs
 
 
+STOP_STRINGS = ["\nTOOL RESULT", "\nUser:"]
+
+
 class HFGenerator:
     """Generate greedy continuations through SafeTune's shared model loaders."""
 
@@ -151,6 +154,10 @@ class HFGenerator:
                 num_return_sequences=1,
                 pad_token_id=self.tokenizer.pad_token_id,
                 return_dict_in_generate=False,
+                # Stop when the model starts inventing a tool result or the next
+                # user turn. Never stop on FINAL: an answer may follow a preamble.
+                stop_strings=STOP_STRINGS,
+                tokenizer=self.tokenizer,
             )
         decoded = self.tokenizer.batch_decode(
             generated[:, width:],
