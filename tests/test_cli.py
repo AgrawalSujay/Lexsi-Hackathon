@@ -43,3 +43,17 @@ class CliTests(unittest.TestCase):
             with self.assertRaises(SystemExit) as error:
                 main(["unknown"])
         self.assertEqual(error.exception.code, 2)
+
+
+def test_every_command_help_renders() -> None:
+    """argparse treats a bare % in help text as a format code and crashes."""
+    import subprocess
+    import sys
+
+    for command in ("build-data", "freeze", "run-episodes"):
+        result = subprocess.run(
+            [sys.executable, "-m", "turnguard", command, "--help"],
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, result.stderr[-300:]

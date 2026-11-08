@@ -3,10 +3,18 @@
 Run from the repo root on your Mac. Needs the teacher endpoint in `.env`:
 
 ```
-CK_MODEL=openai/<served-model-name>
-CK_API_BASE=https://<endpoint>/v1
+CK_MODEL=openai/deepseek-v4.1-flash-1017
+CK_API_BASE=https://api.vultrinference.com/v1
 CK_API_KEY=<key>
 ```
+
+Vultr notes:
+- **Unknown ids are not an error.** Vultr silently answers with
+  `deepseek-v4.1-flash-1017` if the model id doesn't match. The teacher checks
+  who answered and stops with "check CK_MODEL".
+- **Thinking is switched off.** Chat models "think" by default, which is billed
+  as output and eats the token budget. `configs/data.yaml` sends
+  `reasoning: {enabled: false}`, and empty replies are refused, never cached.
 
 `.env` is gitignored. Never paste the key into chat.
 
@@ -34,6 +42,21 @@ python -m turnguard build-data --split dev --teacher litellm --limit 5 --backtra
 episodes, and few or no rejections. Open `data/v1/dev/episodes.jsonl` and read
 2–3 Hindi or Hinglish episodes: are they natural, and are the codes intact?
 Check `data/v1/dev/summary.json` and `rejected.jsonl`.
+
+## 2b. Choosing the teacher (once)
+
+Run the smoke build for each candidate and compare the Hindi and Hinglish. Each
+run costs well under a cent.
+
+```bash
+.venv/bin/python -m turnguard build-data --split dev --teacher litellm --limit 5 --backtranslate
+mv data/v1/dev data/v1/dev_smoke_deepseek
+```
+
+Then set `CK_MODEL=openai/qwen3.8-27b` in `.env`, run the same command, and
+`mv data/v1/dev data/v1/dev_smoke_qwen`. Repeat with `openai/glm-5.3`.
+Check the three `summary.json` + `rejected.jsonl`. Delete the smoke
+folders once a model is chosen.
 
 ## 3. Full builds
 

@@ -192,7 +192,7 @@ def main(argv: list[str] | None = None) -> int:
     build.add_argument(
         "--backtranslate",
         action="store_true",
-        help="Cache and log a 10% backtranslation review sample",
+        help="Cache and log a 10%% backtranslation review sample",
     )
     freeze = commands.add_parser("freeze", help="Freeze the complete test release")
     freeze.add_argument("--split", choices=("test",), required=True)

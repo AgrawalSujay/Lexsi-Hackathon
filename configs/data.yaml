@@ -23,7 +23,9 @@ teacher_sampling:
   max_retries: 1
   num_retries: 0
   drop_params: false
-  extra_body: {}
+  # Vultr chat models "think" by default; thinking is billed as output and
+  # counts against max_tokens, so a 512-token reply could come back empty.
+  extra_body: {reasoning: {enabled: false}}
 # Train's ~1500 future DPO pairs: balanced injected/authorized source budget.
 # Pair construction itself belongs to task 04; clean twins are additional.
 targets:

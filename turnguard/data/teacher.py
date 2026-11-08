@@ -196,6 +196,20 @@ class Teacher:
                     "Teacher request failed after configured retries"
                 ) from error
             text = response.text
+            # Vultr silently routes an unknown model id to its default model, so
+            # check who actually answered before trusting or caching the text.
+            expected = self.model.split("/", 1)[-1]
+            answered = getattr(response, "model", "") or ""
+            if answered and expected not in answered:
+                raise ValueError(
+                    f"Teacher answered as model {answered!r}, not {expected!r}: "
+                    "check CK_MODEL"
+                )
+            if not text.strip():
+                raise ValueError(
+                    "Teacher returned an empty reply (thinking may have used "
+                    "the token budget); not cached"
+                )
             entry["cache"] = "miss"
             entry["provenance"] = response.to_provenance_dict()
             self.cache_dir.mkdir(parents=True, exist_ok=True)

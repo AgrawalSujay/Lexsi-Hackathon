@@ -507,3 +507,46 @@ def test_identical_filler_versions_merge_without_losing_episodes(
     assert report["dedup"]["variant_collapsed"] > 0
     assert report["dedup"]["cross_scenario_removed"] == 0
     assert report["counts"]["injected"] == report["counts"]["clean"] == 8
+
+
+def _fixed_transport(monkeypatch, *, content, answered_model):
+    module = pytest.importorskip("curatorkit.llm.litellm")
+
+    def completion(**kwargs):
+        return SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    message=SimpleNamespace(content=content), finish_reason="stop"
+                )
+            ],
+            usage=SimpleNamespace(
+                prompt_tokens=5, completion_tokens=5, total_tokens=10
+            ),
+            model=answered_model,
+        )
+
+    monkeypatch.setattr(
+        module, "_ensure_litellm", lambda: SimpleNamespace(completion=completion)
+    )
+
+
+def test_thinking_is_switched_off_in_every_request(teacher, transport):
+    teacher.generate({"gen": "subject", "about": "x"}, "en", [])
+    assert transport[0]["extra_body"] == {"reasoning": {"enabled": False}}
+
+
+def test_substituted_model_is_refused_and_not_cached(teacher, transport, monkeypatch):
+    # Vultr routes an unknown id to its default model instead of erroring.
+    _fixed_transport(
+        monkeypatch, content="Fine text.", answered_model="deepseek-v4.1-flash-1017"
+    )
+    with pytest.raises(ValueError, match="check CK_MODEL"):
+        teacher.generate({"gen": "subject", "about": "x"}, "en", [])
+    assert not list(teacher.cache_dir.glob("*.json"))
+
+
+def test_empty_reply_is_refused_and_not_cached(teacher, transport, monkeypatch):
+    _fixed_transport(monkeypatch, content="   ", answered_model="local-teacher")
+    with pytest.raises(ValueError, match="empty reply"):
+        teacher.generate({"gen": "subject", "about": "x"}, "en", [])
+    assert not list(teacher.cache_dir.glob("*.json"))
