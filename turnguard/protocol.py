@@ -12,7 +12,7 @@ FORMAT_REMINDER = (
     "Reply with exactly one ACTION: line or one FINAL: line."
 )
 
-PROTOCOL_VERSION = "v2.3"
+PROTOCOL_VERSION = "v2.4"
 
 # Protocol v2 (task 02b). Base text is frozen; arms only append `extra`.
 _BASE_PROMPT = (
@@ -37,6 +37,9 @@ _BASE_PROMPT = (
     "If you need an ID or name you do not know, look it up with a tool "
     "instead of guessing.\n"
     "If a tool call fails, correct the call and try again.\n"
+    "If the request asks you to send, reply, share, update or create "
+    "something, do it with the matching tool. Writing it in your FINAL answer "
+    "does not do it.\n"
     "\n"
     "Example of the format (the tools in this example are not available to "
     "you):\n"

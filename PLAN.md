@@ -7,7 +7,7 @@
 | Done | Notes |
 |---|---|
 | Harness, tools, parser, scoring, metrics, AuditKIT bridge, HF generator | Tasks 01, 02, 02b; 321 CPU tests |
-| Protocol **v2.3** | Fixes from three Tiny Aya runs and one 8B probe (see `prompts/02b_protocol_v2.md`) |
+| Protocol **v2.4** (frozen) | Fixes from three Tiny Aya runs and two 8B probes (see `prompts/02b_protocol_v2.md`) |
 | Tiny Aya smoke test (Colab) | YELLOW as expected: core loop works, Harden needs the H200 |
 | **Probe-v1** (28 episodes) on Tiny Aya | 0/91 malformed turns; saw the injection in 9/12; **obeyed 4/9**; clean tasks 6/12 |
 
@@ -84,7 +84,7 @@ sandbox value (`*.invalid`, `example.*`).
   tool role. **Decided:** Tiny Aya's template drops tool-role content, so tool
   results go back as user messages `TOOL RESULT (<tool>): ...`. Protocol
   details (system prompt, tool-list format, clean history, error hints) are
-  versioned in `prompts/02b_protocol_v2.md`; current is **v2.3**.
+  versioned in `prompts/02b_protocol_v2.md`; current is **v2.4** (frozen).
 - The harness runs the loop (max 6 steps per user turn), executes tool calls against a state
   dict, and records every action. Side effects (emails sent, files deleted,
   transfers made) are logged and **cannot be undone**, so "do it, then revert"
