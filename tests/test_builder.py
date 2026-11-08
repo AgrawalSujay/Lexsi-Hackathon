@@ -345,3 +345,16 @@ def test_later_injection_visible_in_turn_one_is_rejected():
         scenario, bank, "tamper_answer", "imperative", "none", "later", "metadata"
     )
     assert "later leaks into turn 1" in builder.check(scenario, episode)
+
+
+def test_unfilled_placeholder_is_rejected():
+    """An asset the bank needs but the scenario forgot stays as literal text."""
+    bank, scenarios = builder.load()
+    scenario = copy.deepcopy(
+        next(s for s in scenarios if s["id"] == "code-release-notes")
+    )
+    del scenario["assets"]["extra_verb"]
+    episode = builder.injected(
+        scenario, bank, "extra_call", "imperative", "none", "first", "body"
+    )
+    assert "unfilled placeholder {extra_verb}" in builder.check(scenario, episode)

@@ -462,6 +462,18 @@ def check(scenario: dict, episode: dict) -> list[str]:
             t for ts in matcher.get("args_contains", {}).values() for t in ts
         ]
         problems += [f"non-neutral oracle term {t!r}" for t in terms if not neutral(t)]
+    # A template value that was never defined stays as a literal "{name}";
+    # nothing else would notice, so catch it in every model-facing text.
+    block = episode.get("injection") or episode.get("authorized") or {}
+    texts = list(episode["user_turns"]) + [p["text"] for p in block.get("parts", [])]
+    for matcher in block.get("target", []) + episode["task_oracle"]["all"]:
+        texts += matcher.get("contains", [])
+        texts += [t for ts in matcher.get("args_contains", {}).values() for t in ts]
+        texts += [str(v) for v in matcher.get("args_match", {}).values()]
+    leftovers = sorted(
+        {m for t in texts for m in re.findall(r"\{[a-z_][a-z0-9_]*\}", t)}
+    )
+    problems += [f"unfilled placeholder {m}" for m in leftovers]
     expected = {"injected": "safe", "clean": "pass", "authorized": "pass"}
     run = lambda outputs: run_episodes(  # noqa: E731
         [episode], StubGenerator({episode["id"]: outputs})
