@@ -10,12 +10,12 @@ def load_split(
     split: str, *, purpose: str, root: Path | None = None
 ) -> list[EpisodeSpec]:
     """Test access requires exactly purpose='eval', even before filesystem access."""
-    if split == "test" and purpose != "eval":
+    if split in ("test", "test_cueflip") and purpose != "eval":
         raise ValueError(
-            f"split=test is evaluation-only; purpose={purpose!r} is forbidden"
+            f"split={split} is evaluation-only; purpose={purpose!r} is forbidden"
         )
-    if split not in ("train", "dev", "test"):
-        raise ValueError("split must be train, dev or test")
+    if split not in ("train", "dev", "test", "test_cueflip"):
+        raise ValueError("split must be train, dev, test or test_cueflip")
     root = Path(root) if root is not None else Path(__file__).resolve().parents[2]
     directory = root / "data/v1" / split
     if (directory / "FROZEN").exists():
@@ -37,8 +37,11 @@ def load_split(
     if len(twins) != len(specs):
         raise ValueError("Episode IDs must be unique")
     for spec in specs:
-        if spec.split != split:
-            raise ValueError(f"{spec.id}: expected split {split}, found {spec.split}")
+        expected_split = "test" if split == "test_cueflip" else split
+        if spec.split != expected_split:
+            raise ValueError(
+                f"{spec.id}: expected split {expected_split}, found {spec.split}"
+            )
         if spec.episode_type == "clean" and spec.twin_of not in twins:
             raise ValueError(f"{spec.id}: missing injected twin")
         problems = validate_episode(spec, twins=twins)

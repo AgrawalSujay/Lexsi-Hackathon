@@ -77,6 +77,12 @@ def test_small_build_counts_twins_reproducible_files_and_split_pools(root, split
     report = builder.build_data(split, limit=5, root=root)
     assert report["counts"] == {"injected": 5, "clean": 5, "authorized": 18}
     assert report["rejected"] == 0
+    assert report["overreach"] == {"requested": 1, "accepted": 1}
+    assert (root / "build/stub" / split / "cue_audit.json").is_file()
+    assert (
+        report["cue_audit"]["by_type"]["injected"]["shares"]["user_turn_delegation"]
+        == 0.2
+    )
     assert not (root / "data/v1").exists()
     output = root / "build/stub" / split
     before = {p.name: p.read_bytes() for p in output.iterdir()}

@@ -48,9 +48,24 @@ def freeze_split(split: str, *, root: Path | None = None) -> Path:
         raise ValueError("Only split=test can be frozen")
     root = Path(root) if root is not None else Path(__file__).resolve().parents[2]
     directory = root / "data/v1" / split
+    directories = [directory]
+    companion = directory.with_name("test_cueflip")
+    if companion.exists():
+        directories.append(companion)
+    # Validate every companion before freezing any: a broken cue-flip release
+    # must not leave the main release locked while its companion is mutable.
+    for candidate in directories:
+        _validate_release(candidate)
+    for candidate in directories:
+        if not (candidate / "FROZEN").exists():
+            _freeze_directory(candidate)
+    return directory
+
+
+def _validate_release(directory: Path) -> None:
     if (directory / "FROZEN").exists():
         verify_frozen(directory)
-        return directory
+        return
     for name in (
         "episodes.jsonl",
         "rejected.jsonl",
@@ -60,15 +75,20 @@ def freeze_split(split: str, *, root: Path | None = None) -> Path:
         "summary.json",
     ):
         if not (directory / name).is_file():
-            raise ValueError(f"Cannot freeze incomplete test release: missing {name}")
+            raise ValueError(
+                f"Cannot freeze incomplete test release {directory.name}: "
+                f"missing {name}"
+            )
     summary = json.loads((directory / "summary.json").read_text("utf-8"))
     if summary.get("status") != "complete" or summary.get("teacher") == "stub":
         raise ValueError("Cannot freeze a stopped or stub build")
-    # Validate lossless schema/twin relationships before locking the release.
     from turnguard.data.loaders import load_split
 
-    load_split("test", purpose="eval", root=root)
-    _files(directory)  # reject symlinks before any mutation
+    load_split(directory.name, purpose="eval", root=directory.parents[2])
+    _files(directory)
+
+
+def _freeze_directory(directory: Path) -> None:
     marker = directory / "FROZEN"
     marker.write_text(
         "TurnGuard test release frozen; verify CHECKSUMS.sha256 before use.\n",
@@ -86,4 +106,3 @@ def freeze_split(split: str, *, root: Path | None = None) -> Path:
     except Exception:
         marker.unlink()
         raise
-    return directory

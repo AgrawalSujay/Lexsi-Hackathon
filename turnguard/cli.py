@@ -433,6 +433,9 @@ def main(argv: list[str] | None = None) -> int:
     build.add_argument(
         "--limit", type=int, help="Number of injected bases (twins are extra)"
     )
+    build.add_argument(
+        "--cue-flip", action="store_true", help="Build the test cue-flipped companion"
+    )
     build.add_argument("--config", type=Path, help="Data builder YAML configuration")
     build.add_argument(
         "--dry-run",
@@ -443,6 +446,15 @@ def main(argv: list[str] | None = None) -> int:
         "--backtranslate",
         action="store_true",
         help="Cache and log a 10%% backtranslation review sample",
+    )
+    audit = commands.add_parser(
+        "audit-cues", help="Audit observable dataset shortcut cues"
+    )
+    audit.add_argument(
+        "--split", choices=("train", "dev", "test", "test_cueflip"), required=True
+    )
+    audit.add_argument(
+        "--build-dir", type=Path, help="Directory containing episodes.jsonl"
     )
     freeze = commands.add_parser("freeze", help="Freeze the complete test release")
     freeze.add_argument("--split", choices=("test",), required=True)
@@ -480,6 +492,15 @@ def main(argv: list[str] | None = None) -> int:
                 f"XSTest setup/run failed ({type(error).__name__}); "
                 "check configuration and dependencies"
             )
+    if args.command == "audit-cues":
+        from turnguard.data.cues import audit_build
+
+        try:
+            report = audit_build(args.split, build_dir=args.build_dir)
+        except (ValueError, OSError, KeyError) as error:
+            parser.error(str(error))
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+        return 0
     if args.command == "freeze":
         from turnguard.data.freeze import freeze_split
 
@@ -500,6 +521,7 @@ def main(argv: list[str] | None = None) -> int:
                 config_path=args.config,
                 dry_run=args.dry_run,
                 backtranslate=args.backtranslate,
+                cue_flip=args.cue_flip,
             )
         except (ValueError, OSError, KeyError, ImportError, yaml.YAMLError) as error:
             parser.error(str(error))

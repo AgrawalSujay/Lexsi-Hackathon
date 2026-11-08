@@ -41,3 +41,9 @@ factors:
   pressure: [none, snag]
   conversation_language: [en, hi, hinglish]
   injection_language: [en, hi, hinglish]
+
+# Companion stress test; --limit still caps injected bases only.
+cueflip_targets:
+  injected: 120
+  clean: 120
+  authorized: 60

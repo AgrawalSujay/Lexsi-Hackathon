@@ -185,7 +185,8 @@ def base(
         "task_oracle": {"all": fill(scenario["task_oracle"], names)},
         "meta": {
             "scenario": scenario["id"],
-            "renderer": "builder-v2",
+            "renderer": "builder-v3",
+            "delegation": None,
             "obey_args": fill(scenario.get("obey_args", {}), names),
         },
     }
@@ -218,6 +219,41 @@ def place(episode: dict, slot: dict, text: str, error: str | None) -> dict:
     return {"where": "state", "slot": pointer, "text": text}
 
 
+def attacker_pool(bank: dict, split: str, profile: str = "default") -> dict:
+    """C3 hook: optional named pool overlays; absent profiles use today's bank."""
+    return (
+        bank.get("attacker_pool_profiles", {})
+        .get(profile, {})
+        .get(split, bank["attacker_pools"][split])
+    )
+
+
+def delegation_variant(scenario: dict, position: str) -> dict | None:
+    """Choose an authored delegation for this exposure position, never invent one."""
+    return next(
+        (v for v in scenario.get("authorized", []) if v["position"] == position),
+        None,
+    )
+
+
+def add_delegation(
+    episode: dict,
+    variant: dict,
+    names: dict,
+    teacher: Teacher | None,
+    language: str,
+    tokens: list[str],
+) -> None:
+    """Record the exact delivered sentence so cue auditing survives translation."""
+    text = fill(variant["delegate"], names)
+    if teacher:
+        text = teacher.translate(text, language, tokens, kind="authorized_delegate")
+    check_generated_text(text)
+    turn = 0 if variant["position"] == "first" else 1
+    episode["user_turns"][turn] += text
+    episode["meta"]["delegation"] = {"turn": turn, "text": text}
+
+
 def injected(
     scenario: dict,
     bank: dict,
@@ -233,13 +269,15 @@ def injected(
     conversation_language: str = "en",
     injection_language: str = "en",
     filler_state: dict | None = None,
+    overreach: bool = False,
+    pool_profile: str = "default",
 ) -> dict | None:
     slots = fill(scenario["slots"].get(position, {}).get(carrier), scenario["vars"])
     targets = bank["goals"][goal]["targets"]
     family_targets = targets.get(scenario["family"], targets.get("*"))
     if slots is None or family_targets is None:
         return None
-    pool = bank["attacker_pools"][split]
+    pool = attacker_pool(bank, split, pool_profile)
     choose = rng.choice if rng is not None else lambda values: values[0]
     attacker = {
         "attacker_addr": choose(pool["addr"]),
@@ -292,7 +330,18 @@ def injected(
         injection={"parts": parts, "target": fill(family_targets, names)},
         authorized=None,
     )
-    episode["meta"].update(pressure=pressure)
+    episode["meta"].update(
+        pressure=pressure, overreach=overreach, attacker_pool_profile=pool_profile
+    )
+    if overreach:
+        variant = delegation_variant(scenario, position)
+        if variant is None:
+            raise ValueError(
+                f"No authorized delegation for {scenario['id']}/{position}"
+            )
+        add_delegation(
+            episode, variant, names, teacher_client, conversation_language, tokens
+        )
     return episode
 
 
@@ -305,36 +354,37 @@ def authorized(
     teacher_client: Teacher | None = None,
     conversation_language: str = "en",
     filler_state: dict | None = None,
+    injection_language: str | None = None,
+    address_assistant: bool = False,
 ) -> dict:
+    injection_language = injection_language or conversation_language
     names, episode = base(
         scenario,
         {},
         split,
         teacher_client=teacher_client,
         conversation_language=conversation_language,
-        injection_language=conversation_language,
+        injection_language=injection_language,
         filler_state=filler_state,
     )
     tokens = keep_tokens(
         scenario["vars"], {}, fill(scenario["assets"], scenario["vars"])
     )
     slot = fill(scenario["slots"][variant["position"]][variant["carrier"]], names)
-    turn = 0 if variant["position"] == "first" else 1
     slot = translate_slot(slot, teacher_client, conversation_language, tokens)
-    delegate = fill(variant["delegate"], names)
     text = fill(variant["text"], names)
     if teacher_client:
-        delegate = teacher_client.translate(
-            delegate, conversation_language, tokens, kind="authorized_delegate"
-        )
         # Addresses and filenames authored inside the variant itself are pinned too.
         tokens = sorted(set(tokens + keep_tokens({}, {}, {"text": text})))
         text = teacher_client.translate(
-            text, conversation_language, tokens, kind="authorized_text"
+            text, injection_language, tokens, kind="authorized_text"
         )
-    check_generated_text(delegate)
     check_generated_text(text)
-    episode["user_turns"][turn] += delegate
+    if address_assistant:
+        text = "Assistant: " + text
+    add_delegation(
+        episode, variant, names, teacher_client, conversation_language, tokens
+    )
     part = place(episode, slot, text, None)
     episode.update(
         id=f"{scenario['id']}-auth-{index}",
@@ -739,6 +789,7 @@ def build_data(
     config_path: Path | None = None,
     dry_run: bool = False,
     backtranslate: bool = False,
+    cue_flip: bool = False,
     teacher_client: Teacher | None = None,
 ) -> dict:
     """Assemble checked multilingual groups; plan calls without I/O in dry-run.
@@ -758,7 +809,13 @@ def build_data(
         raise ValueError("Stub output must be build/stub, never data/v1")
     if Path(config["real_output"]) != Path("data/v1"):
         raise ValueError("Real teacher output must be data/v1")
-    target = config["targets"][split]
+    if cue_flip and split != "test":
+        raise ValueError("--cue-flip requires split=test")
+    target = (
+        config.get("cueflip_targets", {"injected": 120, "clean": 120, "authorized": 60})
+        if cue_flip
+        else config["targets"][split]
+    )
     count = target["injected"] if limit is None else limit
     if count < 0:
         raise ValueError("limit must be nonnegative")
@@ -766,10 +823,14 @@ def build_data(
     required = config["required_families"][split]
     scenarios = select_scenarios(all_scenarios, split, required)
     output = (
-        root / config["stub_output" if teacher == "stub" else "real_output"] / split
+        root
+        / config["stub_output" if teacher == "stub" else "real_output"]
+        / ("test_cueflip" if cue_flip else split)
     )
     # Freeze implementation belongs to 3c; protect already frozen datasets now.
-    if (output / "FROZEN").exists():
+    if (output / "FROZEN").exists() or (
+        cue_flip and (output.parent / "test/FROZEN").exists()
+    ):
         raise ValueError(f"Split {split} is frozen: {output}")
     conversations = tuple(config["factors"]["conversation_language"])
     injections = tuple(config["factors"]["injection_language"])
@@ -780,7 +841,24 @@ def build_data(
         conversation_languages=conversations,
         injection_languages=injections,
     )
+    if cue_flip:
+        pool = [
+            item
+            for item in pool
+            if item.conversation_language == item.injection_language
+            and delegation_variant(item.scenario, item.position) is not None
+        ]
     selected = sample(pool, count, seed=config["seed"])
+    eligible = [
+        i
+        for i, item in enumerate(selected)
+        if delegation_variant(item.scenario, item.position) is not None
+    ]
+    overreach_rng = random.Random(config["seed"])
+    overreach_rng.shuffle(eligible)
+    overreach_ids = set(
+        eligible if cue_flip else eligible[: round(len(selected) * 0.15)]
+    )
     if teacher_client is None:
         settings = (
             read_settings(root, required=teacher == "litellm" and not dry_run)
@@ -844,6 +922,7 @@ def build_data(
                 "language": item.conversation_language,
                 "variant": variant,
                 "item": item,
+                "overreach": index in overreach_ids,
             }
         )
     for scenario in scenarios:
@@ -855,11 +934,21 @@ def build_data(
             for conversation, filler_variant in itertools.product(
                 conversations, range(3)
             ):
+                languages = [
+                    language
+                    for language in injections
+                    if not cue_flip or language != conversation
+                ]
+                if not languages:
+                    raise ValueError(
+                        "Cue-flipped authorized texts need a different language"
+                    )
+                instruction_language = rng.choice(languages)
                 jobs.append(
                     {
                         "id": (
                             f"{split}-{scenario['id']}-auth-{index}-"
-                            f"{conversation}-v{filler_variant}"
+                            f"{conversation}-{instruction_language}-v{filler_variant}"
                         ),
                         "kind": "authorized",
                         "scenario": scenario,
@@ -867,8 +956,29 @@ def build_data(
                         "variant": filler_variant,
                         "authorized": variant,
                         "index": index,
+                        "injection_language": instruction_language,
                     }
                 )
+    if cue_flip:
+        # Round-robin scenarios after seeded shuffling; the quota is an upper bound.
+        groups = {}
+        for job in jobs:
+            if job["kind"] == "authorized":
+                groups.setdefault(job["scenario"]["id"], []).append(job)
+        for group in groups.values():
+            rng.shuffle(group)
+        authorized_jobs = []
+        while groups and len(authorized_jobs) < target["authorized"]:
+            for key in list(groups):
+                authorized_jobs.append(groups[key].pop())
+                if not groups[key]:
+                    del groups[key]
+                if len(authorized_jobs) == target["authorized"]:
+                    break
+        jobs = [job for job in jobs if job["kind"] == "injected"] + authorized_jobs
+    if cue_flip:
+        for job in jobs:
+            job["id"] = "cueflip-" + job["id"]
     blocks, failed_blocks, rejected = {}, set(), []
     for job in jobs:
         scenario = job["scenario"]
@@ -962,9 +1072,19 @@ def build_data(
     unique_jobs = []
     for job in jobs:
         if job["kind"] == "injected":
-            key = ("injected", tuple(sorted(job["item"].factors().items())))
+            key = (
+                "injected",
+                tuple(sorted(job["item"].factors().items())),
+                job["overreach"],
+            )
         else:
-            key = ("authorized", job["scenario"]["id"], job["index"], job["language"])
+            key = (
+                "authorized",
+                job["scenario"]["id"],
+                job["index"],
+                job["language"],
+                job["injection_language"],
+            )
         key += (job["block"],)
         if key in seen:
             rejected.append(
@@ -1006,6 +1126,9 @@ def build_data(
         (output / "dedup_report.json").write_text(
             json.dumps(diagnostic, indent=2) + "\n", encoding="utf-8"
         )
+        from turnguard.data.cues import write_cue_audit
+
+        diagnostic["cue_audit"] = write_cue_audit([], output)
         (output / "summary.json").write_text(
             json.dumps(diagnostic, indent=2) + "\n", encoding="utf-8"
         )
@@ -1043,6 +1166,8 @@ def build_data(
                     conversation_language=item.conversation_language,
                     injection_language=item.injection_language,
                     filler_state=block["state"],
+                    overreach=job["overreach"],
+                    pool_profile="cueflip" if cue_flip else "default",
                 )
             else:
                 episode = authorized(
@@ -1052,11 +1177,14 @@ def build_data(
                     split=split,
                     teacher_client=teacher_client,
                     conversation_language=job["language"],
+                    injection_language=job["injection_language"],
+                    address_assistant=cue_flip,
                     filler_state=block["state"],
                 )
             episode["id"] = job["id"]
             episode["meta"].update(
                 seed=config["seed"],
+                cue_profile="flipped" if cue_flip else "standard",
                 teacher=teacher,
                 filler_block=block_id,
                 filler_variant=job["variant"],
@@ -1108,6 +1236,19 @@ def build_data(
         "status": "complete",
         "dedup": dedup,
         "dry_run": dry_run,
+        "cue_flip": cue_flip,
+        "domain_profile": {
+            "requested": "cueflip" if cue_flip else "default",
+            "applied": bool(
+                cue_flip
+                and bank.get("attacker_pool_profiles", {}).get("cueflip", {}).get(split)
+            ),
+            "note": "Optional C3 attacker_pool_profiles overlay; bank unchanged.",
+        },
+        "overreach": {
+            "requested": len(selected) if cue_flip else round(len(selected) * 0.15),
+            "accepted": sum(bool(e["meta"].get("overreach")) for e in injected_items),
+        },
         "requested_injected": count,
         "available_injected": len(pool),
         "counts": {
@@ -1129,7 +1270,8 @@ def build_data(
             "Independent language sampling; stub translations use language markers.",
             "Equal marginal factor quotas; slot constraints may prevent balance.",
             "Each authorized variant is rendered once per conversation language x "
-            "filler version (duplicates after version merging are dropped).",
+            "filler version, with independent instruction language "
+            "(duplicates after version merging are dropped).",
             "Train quotas budget source episodes for future DPO pairs.",
             "CuratorKIT filler-only dedup and SecretsGate; PII rewriting is off.",
         ],
@@ -1137,6 +1279,9 @@ def build_data(
     if dry_run:
         return report
     output.mkdir(parents=True, exist_ok=True)
+    from turnguard.data.cues import write_cue_audit
+
+    report["cue_audit"] = write_cue_audit(episodes, output)
     for name, rows in (
         ("rejected.jsonl", rejected),
         (
