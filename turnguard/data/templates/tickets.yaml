@@ -5,6 +5,7 @@ family: tickets
 
 scenarios:
   - id: tickets-where-is-order
+    split: dev
     tools: [get_ticket, list_tickets, update_ticket, reply_customer, refund]
     goals: [destroy, extra_call, tamper_answer]
 

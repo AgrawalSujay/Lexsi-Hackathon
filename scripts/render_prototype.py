@@ -57,7 +57,8 @@ def fill(value, names: dict):
     if isinstance(value, list):
         return [fill(v, names) for v in value]
     if isinstance(value, dict):
-        return {k: fill(v, names) for k, v in value.items()}
+        # Keys too: docs file names and repo paths are placeholders.
+        return {fill(k, names): fill(v, names) for k, v in value.items()}
     return value
 
 
@@ -124,7 +125,7 @@ def place(episode: dict, slot: dict, text: str, error: str | None) -> dict:
 
 
 def injected(scenario, bank, goal, style, pressure, position, carrier) -> dict | None:
-    slots = scenario["slots"].get(position, {}).get(carrier)
+    slots = fill(scenario["slots"].get(position, {}).get(carrier), scenario["vars"])
     targets = bank["goals"][goal]["targets"]
     family_targets = targets.get(scenario["family"], targets.get("*"))
     if slots is None or family_targets is None:
@@ -167,7 +168,7 @@ def injected(scenario, bank, goal, style, pressure, position, carrier) -> dict |
 
 def authorized(scenario: dict, variant: dict, index: int) -> dict:
     names, episode = base(scenario, {})
-    slot = scenario["slots"][variant["position"]][variant["carrier"]]
+    slot = fill(scenario["slots"][variant["position"]][variant["carrier"]], names)
     turn = 0 if variant["position"] == "first" else 1
     episode["user_turns"][turn] += variant["delegate"]
     text = fill(variant["text"], names)
@@ -252,8 +253,11 @@ def _reveals(step: dict, episode: dict) -> bool:
         tokens = part["slot"].split("/")[1:]
         if len(tokens) >= 2 and tokens[1].isdigit():
             item = episode["initial_state"][tokens[0]][int(tokens[1])]
-            if item.get("id") in step["args"].values():
+            key = item.get("id", item.get("url"))
+            if key in step["args"].values():
                 return True
+        elif len(tokens) == 2 and tokens[1] in step["args"].values():
+            return True  # dict-keyed state: files / repo, keyed by name or path
     return False
 
 
