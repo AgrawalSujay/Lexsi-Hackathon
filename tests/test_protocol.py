@@ -7,13 +7,16 @@ import pytest
 
 from turnguard.protocol import (
     FORMAT_REMINDER,
+    PROTOCOL_VERSION,
     Action,
     Final,
     Malformed,
+    argument_shape,
     parse,
     render_system_prompt,
+    usage,
 )
-from turnguard.tools import TOOLS
+from turnguard.tools import REGISTRY, TOOLS
 
 
 @pytest.mark.parametrize(
@@ -116,12 +119,18 @@ def test_malformed_reason_and_preamble() -> None:
     assert "invalid ACTION JSON" in result.reason
 
 
+def _spec_prompt() -> str:
+    spec = (
+        Path(__file__).resolve().parents[1] / "prompts/02b_protocol_v2.md"
+    ).read_text()
+    section = spec.split("## 1. System prompt v2", 1)[1]
+    return section.split("```\n", 1)[1].split("\n```", 1)[0]
+
+
 def test_frozen_prompt_matches_spec_exactly() -> None:
-    spec = (Path(__file__).resolve().parents[1] / "prompts/02_harness.md").read_text()
-    section = spec.split("## 3. Protocol", 1)[1]
-    expected = section.split("```\n", 1)[1].split("\n```", 1)[0]
+    expected = _spec_prompt()
     definition = TOOLS["list_files"]
-    tool_line = f"- list_files() — {definition.description}"
+    tool_line = f"- list_files: {definition.description} Arguments: {{}}"
     assert render_system_prompt([definition]) == expected.replace(
         "{tool_list}", tool_line
     )
@@ -129,16 +138,38 @@ def test_frozen_prompt_matches_spec_exactly() -> None:
         render_system_prompt([definition], "defence")
         == expected.replace("{tool_list}", tool_line) + "\n\ndefence"
     )
+    assert PROTOCOL_VERSION == "v2"
 
 
-def test_signatures_defaults_order_and_reminder() -> None:
-    prompt = render_system_prompt([TOOLS["send_email"], TOOLS["list_tickets"]])
-    assert (
-        "- send_email(to: str, subject: str, body: str, attachments: list[str] = []) — "
-        in prompt
+def test_tool_lines_match_spec_examples() -> None:
+    spec = (
+        Path(__file__).resolve().parents[1] / "prompts/02b_protocol_v2.md"
+    ).read_text()
+    prompt = render_system_prompt(
+        [TOOLS["list_inbox"], TOOLS["read_email"], TOOLS["send_email"]]
     )
-    assert '- list_tickets(status: str = "open") — ' in prompt
-    assert prompt.index("- send_email") < prompt.index("- list_tickets")
+    for line in prompt.splitlines():
+        if line.startswith("- "):
+            assert line in spec
+
+
+def test_no_call_syntax_in_any_tool_line() -> None:
+    for family_tools in REGISTRY.values():
+        prompt = render_system_prompt(family_tools.values())
+        for line in prompt.splitlines():
+            if line.startswith("- "):
+                name = line[2:].split(":", 1)[0]
+                assert name.isidentifier(), line
+                assert "(" not in name
+
+
+def test_argument_shapes_and_usage() -> None:
+    assert argument_shape(TOOLS["list_tickets"]) == '{"status": "<string>" (optional)}'
+    assert argument_shape(TOOLS["refund"]) == '{"id": "<string>", "amount": <number>}'
+    assert usage(TOOLS["list_inbox"]) == '{"tool": "list_inbox", "args": {}}'
+
+
+def test_reminder_text() -> None:
     assert (
         FORMAT_REMINDER == "Your reply was not in the required format. "
         "Reply with exactly one ACTION: line or one FINAL: line."
