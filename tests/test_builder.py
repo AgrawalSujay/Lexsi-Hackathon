@@ -44,6 +44,8 @@ def root(tmp_path):
         )
     (tmp_path / "configs").mkdir()
     config = yaml.safe_load((REPO / "configs/data.yaml").read_text())
+    # Assembly tests isolate MinHash sensitivity; real 0.85 behavior has dedicated tests.
+    config["curator"]["minhash"]["threshold"] = 1.0
     config["required_families"] = {
         split: ["email", "tickets"] for split in ("train", "dev", "test")
     }

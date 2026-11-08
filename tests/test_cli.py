@@ -31,7 +31,7 @@ class CliTests(unittest.TestCase):
                 self.assertIn(command, result.stdout)
 
     def test_each_command_prints_placeholder(self) -> None:
-        for command in COMMANDS[2:]:
+        for command in COMMANDS[3:]:
             with self.subTest(command=command):
                 output = io.StringIO()
                 with contextlib.redirect_stdout(output):

@@ -16,11 +16,11 @@ from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
 
-PROMPT_VERSION = "teacher-v1"
+PROMPT_VERSION = "teacher-v2"
 LANGUAGES = {
     "en": "English",
     "hi": "Hindi (Devanagari)",
-    "hinglish": "Hinglish (Hindi-English code-mixed)",
+    "hinglish": "Hinglish (Hindi-English code-mixed, written in Latin script)",
 }
 LOG = logging.getLogger(__name__)
 
@@ -209,8 +209,19 @@ class Teacher:
             raise ValueError("Teacher returned empty text")
         return text
 
-    def generate(self, spec: dict, language: str, tokens: list[str]) -> str:
+    def generate(
+        self,
+        spec: dict,
+        language: str,
+        tokens: list[str],
+        *,
+        variant: int = 0,
+        scenario: str = "",
+        field_path: str = "",
+    ) -> str:
         """Generate filler directly in its language, including subjects."""
+        if variant not in (0, 1, 2):
+            raise ValueError("filler variant must be 0, 1 or 2")
         required = list(
             dict.fromkeys(
                 spec.get("include", [])
@@ -219,6 +230,10 @@ class Teacher:
         )
         payload = {
             "task": "filler",
+            "variant": variant,
+            "scenario": scenario,
+            "field": field_path,
+            "diversity": "Vary phrasing and structure for this variant; preserve facts.",
             "language": language,
             "language_name": LANGUAGES[language],
             "kind": spec["gen"],
@@ -227,6 +242,15 @@ class Teacher:
             "include_exactly_once": required,
         }
         fallback = spec["about"][0].upper() + spec["about"][1:] + "."
+        if self.mode == "stub":
+            fallback += (
+                " "
+                + (
+                    "Please check the details carefully before replying.",
+                    "This information supports the next team planning meeting.",
+                    "For further context, consult the relevant supporting material.",
+                )[variant]
+            )
         if self.mode == "stub" and language != "en":
             # Offline plumbing fixture, deliberately not a linguistic substitute.
             fallback = f"[{language}] " + fallback

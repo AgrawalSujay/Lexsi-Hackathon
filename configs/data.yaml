@@ -5,6 +5,10 @@ stub_output: build/stub
 real_output: data/v1
 cache: data/cache
 template_version: bank-v1
+curator:
+  clean: false
+  max_removal_rate: 0.05
+  minhash: {threshold: 0.85, ngram: 3, num_perm: 128, seed: 1234}
 required_families:
   train: [email, docs, tickets, web, calendar]
   dev: [email, docs, tickets, web, calendar]

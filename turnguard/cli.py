@@ -194,9 +194,20 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Cache and log a 10% backtranslation review sample",
     )
-    for name in ("freeze", "train", "eval-external", "report"):
+    freeze = commands.add_parser("freeze", help="Freeze the complete test release")
+    freeze.add_argument("--split", choices=("test",), required=True)
+    for name in ("train", "eval-external", "report"):
         commands.add_parser(name, help="not implemented yet")
     args = parser.parse_args(argv)
+    if args.command == "freeze":
+        from turnguard.data.freeze import freeze_split
+
+        try:
+            directory = freeze_split(args.split)
+        except (ValueError, OSError, KeyError) as error:
+            parser.error(str(error))
+        print(f"Frozen split: {directory}")
+        return 0
     if args.command == "build-data":
         from turnguard.data.builder import build_data
 
@@ -221,6 +232,7 @@ def main(argv: list[str] | None = None) -> int:
                         "requested_shortfall",
                         "plan_type_shortfalls",
                         "teacher_estimate",
+                        "dedup",
                     )
                 },
                 indent=2,

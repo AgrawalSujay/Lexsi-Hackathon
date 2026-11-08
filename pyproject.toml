@@ -20,7 +20,7 @@ gpu = [
     "safetune",
     "auditkit[transformers]",
 ]
-data = ["curatorkit[generation]"]
+data = ["curatorkit[generation]", "detect-secrets>=1.4"]
 circuit = ["circuitkit"]
 
 [tool.setuptools.packages.find]

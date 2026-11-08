@@ -35,6 +35,15 @@ def transport(monkeypatch):
         payload = json.loads(kwargs["messages"][-1]["content"])
         if payload["task"] == "filler":
             text = payload["language"] + "::" + payload["about"]
+            if payload.get("scenario"):
+                text += (
+                    " "
+                    + (
+                        "The first rendering discusses context and practical details for careful review.",
+                        "A second version presents background information using an alternative narrative structure.",
+                        "This final variation describes the situation with fresh wording and additional context.",
+                    )[payload["variant"]]
+                )
             for term in payload["include_exactly_once"]:
                 if term not in text:
                     text += " " + term
@@ -234,6 +243,7 @@ def data_root(tmp_path, monkeypatch):
         )
     config = yaml.safe_load((REPO / "configs/data.yaml").read_text())
     config["required_families"]["dev"] = ["email", "tickets"]
+    config["curator"]["minhash"]["threshold"] = 1.0
     (tmp_path / "configs").mkdir()
     (tmp_path / "configs/data.yaml").write_text(yaml.safe_dump(config))
     for key in ("CK_MODEL", "CK_API_BASE", "CK_API_KEY"):

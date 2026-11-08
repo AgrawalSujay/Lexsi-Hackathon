@@ -84,18 +84,57 @@ def append_at(container: dict | list, pointer: str, text: str) -> None:
 
 
 def generate_state(
-    value: Any, teacher: Teacher, language: str, tokens: list[str]
+    value: Any,
+    teacher: Teacher,
+    language: str,
+    tokens: list[str],
+    *,
+    variant: int = 0,
+    scenario: str = "",
+    pointer: str = "",
+    fields: dict | None = None,
 ) -> Any:
     """Fill only authored generator specs; preserve literal values and keys."""
     if isinstance(value, dict) and "gen" in value:
-        text = teacher.generate(value, language, tokens)
+        text = teacher.generate(
+            value,
+            language,
+            tokens,
+            variant=variant,
+            scenario=scenario,
+            field_path=pointer,
+        )
+        if fields is not None:
+            fields[pointer] = text
         check_generated_text(text)
         return text
     if isinstance(value, list):
-        return [generate_state(v, teacher, language, tokens) for v in value]
+        return [
+            generate_state(
+                v,
+                teacher,
+                language,
+                tokens,
+                variant=variant,
+                scenario=scenario,
+                pointer=f"{pointer}/{i}",
+                fields=fields,
+            )
+            for i, v in enumerate(value)
+        ]
     if isinstance(value, dict):
         return {
-            k: generate_state(v, teacher, language, tokens) for k, v in value.items()
+            k: generate_state(
+                v,
+                teacher,
+                language,
+                tokens,
+                variant=variant,
+                scenario=scenario,
+                pointer=pointer + "/" + str(k).replace("~", "~0").replace("/", "~1"),
+                fields=fields,
+            )
+            for k, v in value.items()
         }
     return value
 
@@ -108,6 +147,7 @@ def base(
     teacher_client: Teacher | None = None,
     conversation_language: str = "en",
     injection_language: str = "en",
+    filler_state: dict | None = None,
 ) -> tuple[dict, dict]:
     names = dict(scenario["vars"])
     names.update(attacker)
@@ -115,9 +155,13 @@ def base(
     tokens = keep_tokens(scenario["vars"], attacker, fill(scenario["assets"], names))
     skeleton = fill(scenario["state"], names)
     state = (
-        generate_state(skeleton, teacher_client, conversation_language, tokens)
-        if teacher_client
-        else stub_generate(skeleton)
+        copy.deepcopy(filler_state)
+        if filler_state is not None
+        else (
+            generate_state(skeleton, teacher_client, conversation_language, tokens)
+            if teacher_client
+            else stub_generate(skeleton)
+        )
     )
     state.setdefault("tool_errors", {})
     turns = fill(scenario["turns"], names)
@@ -188,6 +232,7 @@ def injected(
     teacher_client: Teacher | None = None,
     conversation_language: str = "en",
     injection_language: str = "en",
+    filler_state: dict | None = None,
 ) -> dict | None:
     slots = fill(scenario["slots"].get(position, {}).get(carrier), scenario["vars"])
     targets = bank["goals"][goal]["targets"]
@@ -208,6 +253,7 @@ def injected(
         teacher_client=teacher_client,
         conversation_language=conversation_language,
         injection_language=injection_language,
+        filler_state=filler_state,
     )
     tokens = keep_tokens(scenario["vars"], attacker, fill(scenario["assets"], names))
     names["ask"] = fill(bank["goals"][goal]["ask"], names)
@@ -258,6 +304,7 @@ def authorized(
     split: str = "dev",
     teacher_client: Teacher | None = None,
     conversation_language: str = "en",
+    filler_state: dict | None = None,
 ) -> dict:
     names, episode = base(
         scenario,
@@ -266,6 +313,7 @@ def authorized(
         teacher_client=teacher_client,
         conversation_language=conversation_language,
         injection_language=conversation_language,
+        filler_state=filler_state,
     )
     tokens = keep_tokens(
         scenario["vars"], {}, fill(scenario["assets"], scenario["vars"])
@@ -735,10 +783,16 @@ def build_data(
         )
     if dry_run and teacher_client.mode != "dry-run":
         raise ValueError("dry-run requires a planning teacher, never a real transport")
+    # Dry-run remains independent of optional curation packages and never writes.
+    curator = None
+    if not dry_run:
+        from turnguard.data.curation import CuratorPass
+
+        curator = CuratorPass(config["curator"], clean=config["curator"]["clean"])
     rng = random.Random(config["seed"])
-    episodes, rejected = [], []
+    jobs = []
     for index, item in enumerate(selected):
-        factors = item.factors()
+        variant = rng.randrange(3)
         episode_id = "-".join(
             [
                 split,
@@ -750,91 +804,200 @@ def build_data(
                 item.carrier,
                 item.conversation_language,
                 item.injection_language,
+                f"v{variant}",
                 str(index),
             ]
         )
-        start = len(teacher_client.history)
-        try:
-            episode = injected(
-                item.scenario,
-                bank,
-                item.goal,
-                item.style,
-                item.pressure,
-                item.position,
-                item.carrier,
-                split=split,
-                rng=rng,
-                teacher_client=teacher_client,
-                conversation_language=item.conversation_language,
-                injection_language=item.injection_language,
-            )
-            episode["id"] = episode_id
-            episode["meta"].update(
-                seed=config["seed"],
-                teacher=teacher,
-                teacher_cache_keys=list(
-                    dict.fromkeys(row["key"] for row in teacher_client.history[start:])
-                ),
-            )
-            # Crucially this is the final, translated episode, not an English precursor.
-            twin = make_clean_twin(episode)
-            problems = (
-                []
-                if dry_run
-                else (
-                    check(item.scenario, episode)
-                    + check(item.scenario, twin)
-                    + validate_episode(twin, twins={episode_id: episode})
-                    + placement_problems(episode, twin)
-                )
-            )
-            if problems:
-                rejected.append(
-                    {"id": episode_id, "factors": factors, "reasons": problems}
-                )
-            else:
-                episodes.extend([episode, twin])
-        except (ValueError, KeyError, TypeError, IndexError) as error:
-            rejected.append(
-                {"id": episode_id, "factors": factors, "reasons": [str(error)]}
-            )
+        jobs.append(
+            {
+                "id": episode_id,
+                "kind": "injected",
+                "scenario": item.scenario,
+                "language": item.conversation_language,
+                "variant": variant,
+                "item": item,
+            }
+        )
     for scenario in scenarios:
         for index, variant in enumerate(scenario.get("authorized", [])):
             if split != "test" and variant["carrier"] == "tool_error":
                 continue
             for conversation in conversations:
-                episode_id = f"{split}-{scenario['id']}-auth-{index}-{conversation}"
-                start = len(teacher_client.history)
-                try:
-                    episode = authorized(
-                        scenario,
-                        variant,
-                        index,
-                        split=split,
-                        teacher_client=teacher_client,
-                        conversation_language=conversation,
-                    )
-                    episode["id"] = episode_id
-                    episode["meta"].update(
-                        teacher=teacher,
-                        teacher_cache_keys=list(
-                            dict.fromkeys(
-                                row["key"] for row in teacher_client.history[start:]
-                            )
+                filler_variant = rng.randrange(3)
+                jobs.append(
+                    {
+                        "id": (
+                            f"{split}-{scenario['id']}-auth-{index}-"
+                            f"{conversation}-v{filler_variant}"
                         ),
+                        "kind": "authorized",
+                        "scenario": scenario,
+                        "language": conversation,
+                        "variant": filler_variant,
+                        "authorized": variant,
+                        "index": index,
+                    }
+                )
+    blocks, failed_blocks, rejected = {}, set(), []
+    for job in jobs:
+        scenario = job["scenario"]
+        block_id = f"{split}-{scenario['id']}-v{job['variant']}-{job['language']}"
+        job["block"] = block_id
+        if block_id in blocks or block_id in failed_blocks:
+            continue
+        names = dict(scenario["vars"])
+        names.update(fill(scenario["assets"], names))
+        tokens = keep_tokens(scenario["vars"], {}, fill(scenario["assets"], names))
+        start = len(teacher_client.history)
+        try:
+            fields = {}
+            state = generate_state(
+                fill(scenario["state"], names),
+                teacher_client,
+                job["language"],
+                tokens,
+                variant=job["variant"],
+                scenario=scenario["id"],
+                fields=fields,
+            )
+            state.setdefault("tool_errors", {})
+            # Keep this dictionary usable in dry-run without importing CuratorKIT.
+            blocks[block_id] = {
+                "id": block_id,
+                "scenario": scenario["id"],
+                "variant": job["variant"],
+                "language": job["language"],
+                "state": state,
+                "fields": fields,
+                "cache_keys": list(
+                    dict.fromkeys(row["key"] for row in teacher_client.history[start:])
+                ),
+            }
+        except (ValueError, KeyError, TypeError, IndexError) as error:
+            failed_blocks.add(block_id)
+            rejected.append({"block": block_id, "reasons": [str(error)]})
+    dedup = {
+        "blocks": len(blocks),
+        "removed": 0,
+        "removal_rate": 0,
+        "removals": [],
+        "stopped": False,
+    }
+    if curator:
+        from turnguard.data.curation import FillerBlock
+
+        dedup = curator.dedup([FillerBlock(**block) for block in blocks.values()])
+    removed = {row["block"] for row in dedup["removals"]}
+    for row in dedup["removals"]:
+        affected = [job["id"] for job in jobs if job["block"] == row["block"]]
+        affected += [
+            job["id"] + "-clean"
+            for job in jobs
+            if job["block"] == row["block"] and job["kind"] == "injected"
+        ]
+        row["episode_ids"] = affected
+        rejected.append(
+            {"block": row["block"], "episode_ids": affected, "reasons": [row["reason"]]}
+        )
+    if dedup["stopped"]:
+        output.mkdir(parents=True, exist_ok=True)
+        diagnostic = {
+            "status": "stopped",
+            "split": split,
+            "dedup": dedup,
+            "reason": "filler dedup removal rate exceeds 5%; review before proceeding",
+        }
+        (output / "dedup_report.json").write_text(
+            json.dumps(diagnostic, indent=2) + "\n", encoding="utf-8"
+        )
+        (output / "summary.json").write_text(
+            json.dumps(diagnostic, indent=2) + "\n", encoding="utf-8"
+        )
+        (output / "rejected.jsonl").write_text(
+            "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rejected),
+            encoding="utf-8",
+        )
+        raise ValueError(
+            f"Filler dedup removed {dedup['removed']}/{dedup['blocks']} blocks "
+            f"({dedup['removal_rate']:.1%}), above 5%; stopped. "
+            f"See {output / 'dedup_report.json'}"
+        )
+    episodes = []
+    for job in jobs:
+        block_id = job["block"]
+        if block_id in removed or block_id in failed_blocks:
+            continue
+        block = blocks[block_id]
+        start = len(teacher_client.history)
+        try:
+            if job["kind"] == "injected":
+                item = job["item"]
+                episode = injected(
+                    item.scenario,
+                    bank,
+                    item.goal,
+                    item.style,
+                    item.pressure,
+                    item.position,
+                    item.carrier,
+                    split=split,
+                    rng=rng,
+                    teacher_client=teacher_client,
+                    conversation_language=item.conversation_language,
+                    injection_language=item.injection_language,
+                    filler_state=block["state"],
+                )
+            else:
+                episode = authorized(
+                    job["scenario"],
+                    job["authorized"],
+                    job["index"],
+                    split=split,
+                    teacher_client=teacher_client,
+                    conversation_language=job["language"],
+                    filler_state=block["state"],
+                )
+            episode["id"] = job["id"]
+            episode["meta"].update(
+                seed=config["seed"],
+                teacher=teacher,
+                filler_block=block_id,
+                filler_variant=job["variant"],
+                teacher_cache_keys=list(
+                    dict.fromkeys(
+                        block["cache_keys"]
+                        + [row["key"] for row in teacher_client.history[start:]]
                     )
-                    problems = (
-                        []
-                        if dry_run
-                        else check(scenario, episode) + placement_problems(episode)
-                    )
-                    if problems:
-                        rejected.append({"id": episode_id, "reasons": problems})
-                    else:
-                        episodes.append(episode)
-                except (ValueError, KeyError, TypeError, IndexError) as error:
-                    rejected.append({"id": episode_id, "reasons": [str(error)]})
+                ),
+            )
+            group = [episode]
+            if job["kind"] == "injected":
+                group.append(make_clean_twin(episode))
+            problems = []
+            if not dry_run:
+                for member in group:
+                    problems.extend(check(job["scenario"], member))
+                problems += placement_problems(
+                    episode, group[1] if len(group) == 2 else None
+                )
+            if problems:
+                rejected.append({"id": job["id"], "reasons": problems})
+            else:
+                episodes.extend(group)
+        except (ValueError, KeyError, TypeError, IndexError) as error:
+            rejected.append({"id": job["id"], "reasons": [str(error)]})
+    source_paths = [
+        config_path,
+        root / config["templates"] / "injections.yaml",
+        *sorted((root / config["templates"] / "templates").glob("*.yaml")),
+    ]
+    sources = {
+        str(path.relative_to(root)): hashlib.sha256(path.read_bytes()).hexdigest()
+        for path in source_paths
+    }
+    if curator:
+        episodes, gate_rejected = curator.gate(episodes, sources)
+        rejected.extend(gate_rejected)
     teacher_client.backtranslate_sample()
     injected_items = [e for e in episodes if e["episode_type"] == "injected"]
     levels = copy.deepcopy(config["factors"])
@@ -845,6 +1008,8 @@ def build_data(
         "split": split,
         "teacher": teacher,
         "seed": config["seed"],
+        "status": "complete",
+        "dedup": dedup,
         "dry_run": dry_run,
         "requested_injected": count,
         "available_injected": len(pool),
@@ -868,15 +1033,22 @@ def build_data(
             "Equal marginal factor quotas; slot constraints may prevent balance.",
             "Each authorized variant is rendered once per conversation language.",
             "Train quotas budget source episodes for future DPO pairs.",
-            "CuratorKIT dedup/hygiene/final export stages follow in step 3c.",
+            "CuratorKIT filler-only dedup and SecretsGate; PII rewriting is off.",
         ],
     }
     if dry_run:
         return report
     output.mkdir(parents=True, exist_ok=True)
     for name, rows in (
-        ("episodes.jsonl", episodes),
         ("rejected.jsonl", rejected),
+        (
+            "filler_blocks.jsonl",
+            [
+                {k: v for k, v in block.items() if k != "state"}
+                for block in blocks.values()
+            ],
+        ),
+        ("dedup_report.jsonl", dedup["removals"]),
         ("teacher_calls.jsonl", teacher_client.history),
         ("backtranslations.jsonl", teacher_client.reviews),
     ):
@@ -891,6 +1063,9 @@ def build_data(
         json.dumps(report, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
         encoding="utf-8",
     )
+    # Diagnostics from an earlier stopped attempt must not taint a successful rebuild.
+    (output / "dedup_report.json").unlink(missing_ok=True)
+    curator.write(output, report, rejected, sources)
     logging.getLogger(__name__).info("Build %s: %s", split, report["counts"])
     return report
 
