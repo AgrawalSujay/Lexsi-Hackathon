@@ -26,7 +26,7 @@ class CliTests(unittest.TestCase):
             text=True,
             check=True,
         )
-        for command in COMMANDS:
+        for command in (*COMMANDS, "eval-xstest", "eval-mmlu"):
             with self.subTest(command=command):
                 self.assertIn(command, result.stdout)
 

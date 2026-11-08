@@ -1,0 +1,9 @@
+# Both run-episodes and external evals use this schema. Non-A0 arms require
+# an explicit configuration; the arm implementations are currently stubs.
+arms:
+  A0: {system_prompt: null}
+# A1: {system_prompt: "<the exact configured prompt defence>"}
+# A2/A3: {intervention_factory: "your.module:make_hook", intervention_kwargs: {...}}
+# A4/A5: {adapter: "<local adapter path or HF adapter ID>"}
+# Factory signature: make_hook(generator=<HFGenerator>, **kwargs) -> callable
+# returning a context manager, as expected by HFGenerator.intervention.
