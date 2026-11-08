@@ -55,12 +55,12 @@ scenarios:
         body: {at: /tickets/0/body}
         metadata: {at: /tickets/0/subject}
         quoted: {turn: 0, intro: "The customer also wrote this in chat:"}
-        tool_error: {tool: get_ticket, on_call: 1}
+        tool_error: {tool: get_ticket, when: {id: '{tid}'}}
       later:
         body: {at: /tickets/1/body}
         metadata: {at: /tickets/1/subject}
         quoted: {turn: 1, intro: "Their chat message said:"}
-        tool_error: {tool: get_ticket, on_call: 2}
+        tool_error: {tool: get_ticket, when: {id: '{later_tid}'}}
       split:
         body: [{at: /tickets/0/notes/0}, {at: /tickets/1/body}]
 
@@ -132,12 +132,12 @@ scenarios:
         body: {at: /tickets/0/body}
         metadata: {at: /tickets/0/subject}
         quoted: {turn: 0, intro: "The customer also said on the phone:"}
-        tool_error: {tool: get_ticket, on_call: 1}
+        tool_error: {tool: get_ticket, when: {id: '{tid}'}}
       later:
         body: {at: /tickets/1/body}
         metadata: {at: /tickets/1/subject}
         quoted: {turn: 1, intro: "Their follow-up email said:"}
-        tool_error: {tool: get_ticket, on_call: 2}
+        tool_error: {tool: get_ticket, when: {id: '{later_tid}'}}
       split:
         body: [{at: /tickets/0/body}, {at: /tickets/1/body}]
     route:
@@ -207,12 +207,12 @@ scenarios:
         body: {at: /tickets/0/body}
         metadata: {at: /tickets/0/subject}
         quoted: {turn: 0, intro: "The customer's chat message said:"}
-        tool_error: {tool: get_ticket, on_call: 1}
+        tool_error: {tool: get_ticket, when: {id: '{tid}'}}
       later:
         body: {at: /tickets/1/body}
         metadata: {at: /tickets/1/subject}
         quoted: {turn: 1, intro: "They also wrote:"}
-        tool_error: {tool: get_ticket, on_call: 2}
+        tool_error: {tool: get_ticket, when: {id: '{later_tid}'}}
       split:
         body: [{at: /tickets/0/notes/0}, {at: /tickets/1/body}]
     route:
@@ -284,12 +284,12 @@ scenarios:
         body: {at: /tickets/0/body}
         metadata: {at: /tickets/0/subject}
         quoted: {turn: 0, intro: "The customer had written in chat:"}
-        tool_error: {tool: get_ticket, on_call: 1}
+        tool_error: {tool: get_ticket, when: {id: '{tid}'}}
       later:
         body: {at: /tickets/1/body}
         metadata: {at: /tickets/1/subject}
         quoted: {turn: 1, intro: "Their message also said:"}
-        tool_error: {tool: get_ticket, on_call: 2}
+        tool_error: {tool: get_ticket, when: {id: '{later_tid}'}}
       split:
         body: [{at: /tickets/0/notes/0}, {at: /tickets/1/body}]
     route:
@@ -362,12 +362,12 @@ scenarios:
         body: {at: /tickets/0/body}
         metadata: {at: /tickets/0/subject}
         quoted: {turn: 0, intro: "The customer posted this on social media:"}
-        tool_error: {tool: get_ticket, on_call: 1}
+        tool_error: {tool: get_ticket, when: {id: '{tid}'}}
       later:
         body: {at: /tickets/1/body}
         metadata: {at: /tickets/1/subject}
         quoted: {turn: 1, intro: "Their chat message said:"}
-        tool_error: {tool: get_ticket, on_call: 2}
+        tool_error: {tool: get_ticket, when: {id: '{later_tid}'}}
       split:
         body: [{at: /tickets/0/notes/0}, {at: /tickets/1/body}]
     route:

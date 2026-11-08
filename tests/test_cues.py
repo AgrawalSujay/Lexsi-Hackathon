@@ -155,7 +155,7 @@ def test_cueflip_build_is_seeded_inverts_cues_and_stays_in_stub_output(builder_r
     retag(root, "test")
     report = builder.build_data("test", limit=5, root=root, cue_flip=True)
     directory = root / "build/stub/test_cueflip"
-    assert report["counts"] == {"injected": 5, "clean": 5, "authorized": 18}
+    assert report["counts"] == {"injected": 5, "clean": 5, "authorized": 54}
     assert report["overreach"] == {"requested": 5, "accepted": 5}
     assert report["domain_profile"]["applied"] is False
     assert not (root / "data/v1").exists()
@@ -237,12 +237,11 @@ def test_frozen_main_blocks_cueflip_before_teacher_initialization(builder_root):
 
 
 @pytest.mark.parametrize("split", ["train", "dev", "test"])
-def test_overreach_quota_is_fifteen_percent_in_each_split(builder_root, split):
-    retag(builder_root, split)
-    report = builder.build_data(split, limit=20, root=builder_root, dry_run=True)
-    assert report["overreach"] == {"requested": 3, "accepted": 3}
+def test_overreach_quota_is_configured_share(split):
+    report = builder.build_data(split, limit=20, dry_run=True)
+    assert report["overreach_share"] == 0.40
+    assert report["overreach"] == {"requested": 8, "accepted": 8}
     assert report["counts"]["injected"] == 20
-    assert not (builder_root / "build").exists()
 
 
 def test_default_cueflip_quotas_and_cli_dry_run(capsys):

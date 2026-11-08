@@ -699,3 +699,36 @@ def test_share_file_and_send_invite_validate_recipients() -> None:
     assert not calendar.execute(
         "send_invite", {"event_id": event_id, "to": "ops team"}, step=1, turn=1
     ).ok
+
+
+def test_argument_keyed_error_waits_for_matching_args_and_fires_only_once():
+    data = state()
+    data["tool_errors"] = {
+        "read_email": [{"when": {"id": "m2"}, "message": " exact late error \n"}]
+    }
+    data["inbox"].append({**data["inbox"][0], "id": "m2", "body": "Later body"})
+    environment = env("email", data)
+    assert not environment.execute("read_email", {"wrong": "m2"}, step=1, turn=1).ok
+    for step in (2, 3, 4):
+        assert environment.execute("read_email", {"id": "m1"}, step=step, turn=1).ok
+    first = environment.execute("read_email", {"id": "m2"}, step=5, turn=2)
+    assert first.error == " exact late error \n"
+    assert not first.ok
+    assert environment.execute("read_email", {"id": "m2"}, step=6, turn=2).ok
+    # A new episode/environment starts with an unfired rule.
+    assert not env("email", data).execute("read_email", {"id": "m2"}, step=1, turn=1).ok
+
+
+def test_keyed_error_allows_additional_arguments_and_empty_conditions():
+    data = state()
+    data["tool_errors"] = {
+        "send_email": [{"when": {"to": "x@example.com"}, "message": "blocked"}],
+        "list_inbox": [{"when": {}, "message": "retry"}],
+    }
+    environment = env("email", data)
+    args = {"to": "x@example.com", "subject": "ID-1", "body": "ID-2"}
+    assert not environment.execute("send_email", args, step=1, turn=1).ok
+    assert not data.get("sent_emails")
+    assert environment.execute("send_email", args, step=2, turn=1).ok
+    assert not environment.execute("list_inbox", {}, step=3, turn=1).ok
+    assert environment.execute("list_inbox", {}, step=4, turn=1).ok

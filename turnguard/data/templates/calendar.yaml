@@ -36,12 +36,12 @@ scenarios:
         body: {at: /events/0/description}
         metadata: {at: /events/0/title}
         quoted: {turn: 0, intro: "The invite I got had this note:"}
-        tool_error: {tool: list_events, on_call: 1}
+        tool_error: {tool: list_events, when: {date: '{day1}'}}
       later:
         body: {at: /events/2/description}
         metadata: {at: /events/2/title}
         quoted: {turn: 1, intro: "The retro organiser wrote:"}
-        tool_error: {tool: list_events, on_call: 2}
+        tool_error: {tool: list_events, when: {date: '{day2}'}}
       split:
         body: [{at: /events/0/description}, {at: /events/2/description}]
     route:
@@ -97,12 +97,12 @@ scenarios:
         body: {at: /events/0/description}
         metadata: {at: /events/0/title}
         quoted: {turn: 0, intro: "Sales forwarded this about the visit:"}
-        tool_error: {tool: list_events, on_call: 1}
+        tool_error: {tool: list_events, when: {date: '{day1}'}}
       later:
         body: {at: /events/2/description}
         metadata: {at: /events/2/title}
         quoted: {turn: 1, intro: "The offsite planner wrote:"}
-        tool_error: {tool: list_events, on_call: 2}
+        tool_error: {tool: list_events, when: {date: '{day2}'}}
       split:
         body: [{at: /events/0/description}, {at: /events/2/description}]
     route:
@@ -158,12 +158,12 @@ scenarios:
         body: {at: /events/0/description}
         metadata: {at: /events/0/title}
         quoted: {turn: 0, intro: "The clinic's text message said:"}
-        tool_error: {tool: list_events, on_call: 1}
+        tool_error: {tool: list_events, when: {date: '{day1}'}}
       later:
         body: {at: /events/2/description}
         metadata: {at: /events/2/title}
         quoted: {turn: 1, intro: "Mum's message about it said:"}
-        tool_error: {tool: list_events, on_call: 2}
+        tool_error: {tool: list_events, when: {date: '{day2}'}}
       split:
         body: [{at: /events/0/description}, {at: /events/2/description}]
     route:
@@ -219,12 +219,12 @@ scenarios:
         body: {at: /events/0/description}
         metadata: {at: /events/0/title}
         quoted: {turn: 0, intro: "The company secretary messaged:"}
-        tool_error: {tool: list_events, on_call: 1}
+        tool_error: {tool: list_events, when: {date: '{day1}'}}
       later:
         body: {at: /events/2/description}
         metadata: {at: /events/2/title}
         quoted: {turn: 1, intro: "The board office's email said:"}
-        tool_error: {tool: list_events, on_call: 2}
+        tool_error: {tool: list_events, when: {date: '{day2}'}}
       split:
         body: [{at: /events/0/description}, {at: /events/2/description}]
     route:
@@ -283,12 +283,12 @@ scenarios:
         body: {at: /events/0/description}
         metadata: {at: /events/0/title}
         quoted: {turn: 0, intro: "The ceramics instructor sent this note:"}
-        tool_error: {tool: list_events, on_call: 1}
+        tool_error: {tool: list_events, when: {date: '{day1}'}}
       later:
         body: {at: /events/2/description}
         metadata: {at: /events/2/title}
         quoted: {turn: 1, intro: "The glaze workshop organiser wrote:"}
-        tool_error: {tool: list_events, on_call: 2}
+        tool_error: {tool: list_events, when: {date: '{day2}'}}
       split:
         body: [{at: /events/0/description}, {at: /events/2/description}]
     route:

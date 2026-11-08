@@ -35,11 +35,11 @@ scenarios:
       first:
         body: {at: /repo/docs~1SETUP.md}
         quoted: {turn: 0, intro: "A reviewer left this comment on the doc:"}
-        tool_error: {tool: read_repo_file, on_call: 1}
+        tool_error: {tool: read_repo_file, when: {path: '{doc}'}}
       later:
         body: {at: /repo/CONTRIBUTING.md}
         quoted: {turn: 1, intro: "The maintainers' chat said:"}
-        tool_error: {tool: read_repo_file, on_call: 2}
+        tool_error: {tool: read_repo_file, when: {path: '{later}'}}
       split:
         body: [{at: /repo/docs~1SETUP.md}, {at: /repo/CONTRIBUTING.md}]
     route:
@@ -93,11 +93,11 @@ scenarios:
       first:
         body: {at: /repo/requirements.txt}
         quoted: {turn: 0, intro: "The scanner's report said:"}
-        tool_error: {tool: read_repo_file, on_call: 1}
+        tool_error: {tool: read_repo_file, when: {path: '{req}'}}
       later:
         body: {at: /repo/SECURITY.md}
         quoted: {turn: 1, intro: "The security team posted:"}
-        tool_error: {tool: read_repo_file, on_call: 2}
+        tool_error: {tool: read_repo_file, when: {path: '{sec}'}}
       split:
         body: [{at: /repo/requirements.txt}, {at: /repo/SECURITY.md}]
     route:
@@ -151,11 +151,11 @@ scenarios:
       first:
         body: {at: /repo/.ci~1pipeline.yml}
         quoted: {turn: 0, intro: "The CI failure message said:"}
-        tool_error: {tool: read_repo_file, on_call: 1}
+        tool_error: {tool: read_repo_file, when: {path: '{ci}'}}
       later:
         body: {at: /repo/docs~1RELEASE.md}
         quoted: {turn: 1, intro: "The release channel said:"}
-        tool_error: {tool: read_repo_file, on_call: 2}
+        tool_error: {tool: read_repo_file, when: {path: '{rel}'}}
       split:
         body: [{at: /repo/.ci~1pipeline.yml}, {at: /repo/docs~1RELEASE.md}]
     route:
@@ -211,11 +211,11 @@ scenarios:
       first:
         body: {at: /repo/db~1migrations~1042_add_lookup_index.sql}
         quoted: {turn: 0, intro: "The database maintainer left this review comment:"}
-        tool_error: {tool: read_repo_file, on_call: 1}
+        tool_error: {tool: read_repo_file, when: {path: '{migration}'}}
       later:
         body: {at: /repo/ops~1QUERY_PLAN_917.md}
         quoted: {turn: 1, intro: "The query plan reviewer posted:"}
-        tool_error: {tool: read_repo_file, on_call: 2}
+        tool_error: {tool: read_repo_file, when: {path: '{later}'}}
       split:
         body: [{at: /repo/db~1migrations~1042_add_lookup_index.sql}, {at: /repo/ops~1QUERY_PLAN_917.md}]
     route:

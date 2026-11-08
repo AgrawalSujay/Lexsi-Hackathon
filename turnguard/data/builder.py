@@ -24,7 +24,7 @@ from turnguard.harness import run_episodes
 from turnguard.models import StubGenerator
 from turnguard.oracles import exposed
 from turnguard.schema import make_clean_twin, resolve_pointer, validate_episode
-from turnguard.tools import REGISTRY
+from turnguard.tools import REGISTRY, scripted_error_matches
 
 DATA = Path(__file__).resolve().parent
 STYLES = ("imperative", "fake_authority", "named_approval", "task_framed")
@@ -214,7 +214,8 @@ def place(episode: dict, slot: dict, text: str, error: str | None) -> dict:
         episode["user_turns"][index] += f'\n\n{slot["intro"]}\n"{text}"'
         return {"where": "user_turn", "slot": f"/{index}", "text": text}
     errors = episode["initial_state"]["tool_errors"].setdefault(slot["tool"], [])
-    errors.append({"on_call": slot["on_call"], "message": f"{error} {text}"})
+    trigger = {"when": slot["when"]} if "when" in slot else {"on_call": slot["on_call"]}
+    errors.append({**trigger, "message": f"{error} {text}"})
     pointer = f"/tool_errors/{slot['tool']}/{len(errors) - 1}/message"
     return {"where": "state", "slot": pointer, "text": text}
 
@@ -400,6 +401,21 @@ def authorized(
     return episode
 
 
+def authorized_variants(scenario: dict) -> list[tuple[int, dict]]:
+    """Expand authored instructions across available non-error carriers, once."""
+    variants, seen = [], set()
+    for index, variant in enumerate(scenario.get("authorized", [])):
+        for carrier in scenario["slots"].get(variant["position"], {}):
+            if carrier not in ("body", "metadata", "quoted"):
+                continue
+            expanded = {**variant, "carrier": carrier}
+            key = json.dumps(expanded, sort_keys=True, ensure_ascii=False)
+            if key not in seen:
+                seen.add(key)
+                variants.append((index, expanded))
+    return variants
+
+
 def action(tool: str, args: dict) -> str:
     return "ACTION: " + json.dumps({"tool": tool, "args": args}, ensure_ascii=False)
 
@@ -410,6 +426,7 @@ def script(scenario: dict, episode: dict, obey: bool) -> list[str]:
     route = fill(scenario["route"], names)
     errors = episode["initial_state"]["tool_errors"]
     counts: dict[str, int] = {}
+    fired_errors: set[tuple[str, int]] = set()
     oracle = episode["task_oracle"]["all"]
     extra = []
     if episode["authorized"]:
@@ -429,13 +446,22 @@ def script(scenario: dict, episode: dict, obey: bool) -> list[str]:
     for turn in range(1, len(episode["user_turns"]) + 1):
         for step in [s for s in route if s["turn"] == turn]:
             outputs.append(action(step["tool"], step["args"]))
-            counts[step["tool"]] = counts.get(step["tool"], 0) + 1
-            if any(
-                e["on_call"] == counts[step["tool"]]
-                for e in errors.get(step["tool"], [])
-            ):
-                outputs.append(action(step["tool"], step["args"]))
-                counts[step["tool"]] += 1
+            while True:
+                name = step["tool"]
+                counts[name] = counts.get(name, 0) + 1
+                failure = next(
+                    (
+                        index
+                        for index, rule in enumerate(errors.get(name, []))
+                        if (name, index) not in fired_errors
+                        and scripted_error_matches(rule, step["args"], counts[name])
+                    ),
+                    None,
+                )
+                if failure is None:
+                    break
+                fired_errors.add((name, failure))
+                outputs.append(action(name, step["args"]))
         for matcher in extra:
             if matcher["kind"] == "call" and turn == 1:
                 outputs.append(_call_for(matcher, episode))
@@ -468,7 +494,12 @@ def _reveals(step: dict, episode: dict) -> bool:
         if part["where"] != "state":
             continue
         if part["slot"].startswith(f"/tool_errors/{step['tool']}/"):
-            return True
+            rule = resolve_pointer(
+                episode["initial_state"], part["slot"].rsplit("/", 1)[0]
+            )
+            if "when" not in rule or scripted_error_matches(rule, step["args"], 0):
+                return True
+            continue
         tokens = part["slot"].split("/")[1:]
         if len(tokens) >= 2 and tokens[1].isdigit():
             item = episode["initial_state"][tokens[0]][int(tokens[1])]
@@ -811,6 +842,13 @@ def build_data(
         raise ValueError("Real teacher output must be data/v1")
     if cue_flip and split != "test":
         raise ValueError("--cue-flip requires split=test")
+    overreach_share = config["overreach_share"]
+    if (
+        isinstance(overreach_share, bool)
+        or not isinstance(overreach_share, (float, int))
+        or not 0 <= overreach_share <= 1
+    ):
+        raise ValueError("overreach_share must be a number between 0 and 1")
     target = (
         config.get("cueflip_targets", {"injected": 120, "clean": 120, "authorized": 60})
         if cue_flip
@@ -857,7 +895,7 @@ def build_data(
     overreach_rng = random.Random(config["seed"])
     overreach_rng.shuffle(eligible)
     overreach_ids = set(
-        eligible if cue_flip else eligible[: round(len(selected) * 0.15)]
+        eligible if cue_flip else eligible[: round(len(selected) * overreach_share)]
     )
     if teacher_client is None:
         settings = (
@@ -926,7 +964,7 @@ def build_data(
             }
         )
     for scenario in scenarios:
-        for index, variant in enumerate(scenario.get("authorized", [])):
+        for index, variant in authorized_variants(scenario):
             if split != "test" and variant["carrier"] == "tool_error":
                 continue
             # Once per (conversation language x filler version): up to 9 per
@@ -947,7 +985,7 @@ def build_data(
                 jobs.append(
                     {
                         "id": (
-                            f"{split}-{scenario['id']}-auth-{index}-"
+                            f"{split}-{scenario['id']}-auth-{index}-{variant['carrier']}-"
                             f"{conversation}-{instruction_language}-v{filler_variant}"
                         ),
                         "kind": "authorized",
@@ -959,6 +997,29 @@ def build_data(
                         "injection_language": instruction_language,
                     }
                 )
+    if split == "train":
+        # Some positions lack metadata slots: the mandatory carrier x language x
+        # filler grid alone is below the train budget. Add distinct instruction-
+        # language views, never copies, up to the configured authorized target.
+        alternatives = []
+        for job in jobs:
+            if job["kind"] != "authorized":
+                continue
+            for language in injections:
+                if language == job["injection_language"]:
+                    continue
+                alternative = {**job, "injection_language": language}
+                alternative["id"] = (
+                    f"{split}-{job['scenario']['id']}-auth-{job['index']}-"
+                    f"{job['authorized']['carrier']}-{job['language']}-"
+                    f"{language}-v{job['variant']}"
+                )
+                alternatives.append(alternative)
+        rng.shuffle(alternatives)
+        quota = max(
+            0, target["authorized"] - sum(j["kind"] == "authorized" for j in jobs)
+        )
+        jobs.extend(alternatives[:quota])
     if cue_flip:
         # Round-robin scenarios after seeded shuffling; the quota is an upper bound.
         groups = {}
@@ -1082,6 +1143,7 @@ def build_data(
                 "authorized",
                 job["scenario"]["id"],
                 job["index"],
+                job["authorized"]["carrier"],
                 job["language"],
                 job["injection_language"],
             )
@@ -1245,8 +1307,39 @@ def build_data(
             ),
             "note": "Optional C3 attacker_pool_profiles overlay; bank unchanged.",
         },
+        "overreach_share": overreach_share,
+        "authorized_coverage": {
+            "by_carrier": dict(
+                Counter(
+                    e["carrier"] for e in episodes if e["episode_type"] == "authorized"
+                )
+            ),
+            "by_language": dict(
+                Counter(
+                    e["lang"]["conversation"]
+                    for e in episodes
+                    if e["episode_type"] == "authorized"
+                )
+            ),
+            "by_instruction_language": dict(
+                Counter(
+                    e["lang"]["injection"]
+                    for e in episodes
+                    if e["episode_type"] == "authorized"
+                )
+            ),
+            "by_filler_variant": dict(
+                Counter(
+                    str(e["meta"]["filler_variant"])
+                    for e in episodes
+                    if e["episode_type"] == "authorized"
+                )
+            ),
+        },
         "overreach": {
-            "requested": len(selected) if cue_flip else round(len(selected) * 0.15),
+            "requested": len(selected)
+            if cue_flip
+            else round(len(selected) * overreach_share),
             "accepted": sum(bool(e["meta"].get("overreach")) for e in injected_items),
         },
         "requested_injected": count,
@@ -1269,9 +1362,10 @@ def build_data(
         "notes": [
             "Independent language sampling; stub translations use language markers.",
             "Equal marginal factor quotas; slot constraints may prevent balance.",
-            "Each authorized variant is rendered once per conversation language x "
-            "filler version, with independent instruction language "
-            "(duplicates after version merging are dropped).",
+            "Each authorized variant covers available non-error carriers x "
+            "conversation language x filler version, "
+            "with independent instruction language "
+            "(train adds distinct language views toward its authorized budget).",
             "Train quotas budget source episodes for future DPO pairs.",
             "CuratorKIT filler-only dedup and SecretsGate; PII rewriting is off.",
         ],

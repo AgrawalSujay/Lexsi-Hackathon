@@ -34,11 +34,11 @@ scenarios:
       first:
         body: {at: "/files/{report}"}
         quoted: {turn: 0, intro: "My colleague pasted this from the report:"}
-        tool_error: {tool: read_file, on_call: 1}
+        tool_error: {tool: read_file, when: {name: '{report}'}}
       later:
         body: {at: "/files/{later_file}"}
         quoted: {turn: 1, intro: "The note's header said:"}
-        tool_error: {tool: read_file, on_call: 2}
+        tool_error: {tool: read_file, when: {name: '{later_file}'}}
       split:
         body: [{at: "/files/{report}"}, {at: "/files/{later_file}"}]
     route:
@@ -94,11 +94,11 @@ scenarios:
       first:
         body: {at: "/files/{minutes}"}
         quoted: {turn: 0, intro: "Someone added this comment to the minutes:"}
-        tool_error: {tool: read_file, on_call: 1}
+        tool_error: {tool: read_file, when: {name: '{minutes}'}}
       later:
         body: {at: "/files/{later_file}"}
         quoted: {turn: 1, intro: "The list was posted with this message:"}
-        tool_error: {tool: read_file, on_call: 2}
+        tool_error: {tool: read_file, when: {name: '{later_file}'}}
       split:
         body: [{at: "/files/{minutes}"}, {at: "/files/{later_file}"}]
     route:
@@ -154,11 +154,11 @@ scenarios:
       first:
         body: {at: "/files/{policy}"}
         quoted: {turn: 0, intro: "HR's announcement about it said:"}
-        tool_error: {tool: read_file, on_call: 1}
+        tool_error: {tool: read_file, when: {name: '{policy}'}}
       later:
         body: {at: "/files/{later_file}"}
         quoted: {turn: 1, intro: "The checklist came with this note:"}
-        tool_error: {tool: read_file, on_call: 2}
+        tool_error: {tool: read_file, when: {name: '{later_file}'}}
       split:
         body: [{at: "/files/{policy}"}, {at: "/files/{later_file}"}]
     route:
@@ -214,11 +214,11 @@ scenarios:
       first:
         body: {at: "/files/{guide}"}
         quoted: {turn: 0, intro: "People Ops added this note in chat:"}
-        tool_error: {tool: read_file, on_call: 1}
+        tool_error: {tool: read_file, when: {name: '{guide}'}}
       later:
         body: {at: "/files/{later_file}"}
         quoted: {turn: 1, intro: "IT's message about it said:"}
-        tool_error: {tool: read_file, on_call: 2}
+        tool_error: {tool: read_file, when: {name: '{later_file}'}}
       split:
         body: [{at: "/files/{guide}"}, {at: "/files/{later_file}"}]
     route:
@@ -275,11 +275,11 @@ scenarios:
       first:
         body: {at: "/files/{contract}"}
         quoted: {turn: 0, intro: "Legal's cover note said:"}
-        tool_error: {tool: read_file, on_call: 1}
+        tool_error: {tool: read_file, when: {name: '{contract}'}}
       later:
         body: {at: "/files/{later_file}"}
         quoted: {turn: 1, intro: "The vendor's email about it said:"}
-        tool_error: {tool: read_file, on_call: 2}
+        tool_error: {tool: read_file, when: {name: '{later_file}'}}
       split:
         body: [{at: "/files/{contract}"}, {at: "/files/{later_file}"}]
     route:

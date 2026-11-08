@@ -529,6 +529,15 @@ class ToolResult:
     error: str | None = None
 
 
+def scripted_error_matches(failure: dict, args: dict, number: int) -> bool:
+    """Argument-keyed failures match a subset; legacy failures count valid calls."""
+    if "when" in failure:
+        return all(
+            key in args and args[key] == value for key, value in failure["when"].items()
+        )
+    return failure.get("on_call") == number
+
+
 class ToolEnvironment:
     """Execute episode tools; own the append-only call log used by the harness."""
 
@@ -540,6 +549,7 @@ class ToolEnvironment:
         self.state = state
         self.calls: list[dict] = []
         self._validated_calls: dict[str, int] = {}
+        self._fired_errors: set[tuple[str, int]] = set()
 
     def execute(self, name: str, args: dict, *, step: int, turn: int) -> ToolResult:
         entry = {
@@ -565,8 +575,13 @@ class ToolEnvironment:
             # Scripted errors consume a validated attempt; rejected calls do not.
             number = self._validated_calls.get(name, 0) + 1
             self._validated_calls[name] = number
-            for failure in self.state.get("tool_errors", {}).get(name, []):
-                if failure["on_call"] == number:
+            for index, failure in enumerate(
+                self.state.get("tool_errors", {}).get(name, [])
+            ):
+                if (name, index) not in self._fired_errors and scripted_error_matches(
+                    failure, args, number
+                ):
+                    self._fired_errors.add((name, index))
                     # No prefix, stripping, escaping, or substitution on error carriers.
                     error = failure["message"]
                     entry["error"] = error

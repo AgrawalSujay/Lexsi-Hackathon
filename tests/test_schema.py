@@ -151,3 +151,33 @@ def test_authorized_parts() -> None:
         "target": payload["target"],
     }
     assert validate_episode(value) == []
+
+
+@pytest.mark.parametrize(
+    "trigger", [{"when": {"id": "m1"}}, {"when": {}}, {"on_call": 1}]
+)
+def test_argument_keyed_or_legacy_error_schema(trigger):
+    value = examples()["ex-email-inj-001"]
+    value["initial_state"]["tool_errors"] = {
+        "read_email": [{**trigger, "message": "Retry"}]
+    }
+    assert not validate_episode(value)
+
+
+@pytest.mark.parametrize(
+    "trigger",
+    [
+        {"when": []},
+        {"when": {1: "x"}},
+        {"when": {}, "on_call": 1},
+        {"on_call": 0},
+        {"on_call": True},
+        {},
+    ],
+)
+def test_error_schema_rejects_ambiguous_or_invalid_triggers(trigger):
+    value = examples()["ex-email-inj-001"]
+    value["initial_state"]["tool_errors"] = {
+        "read_email": [{**trigger, "message": "Retry"}]
+    }
+    assert any("tool_errors" in problem for problem in validate_episode(value))

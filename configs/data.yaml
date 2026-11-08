@@ -1,5 +1,6 @@
 # Teacher generation is opt-in; stub builds stay entirely offline.
 seed: 1234
+overreach_share: 0.40
 templates: turnguard/data
 stub_output: build/stub
 real_output: data/v1

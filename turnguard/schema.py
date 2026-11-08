@@ -221,13 +221,23 @@ def validate_episode(
                 errors.append("tool_errors: invalid tool or entries")
                 continue
             for entry in entries:
-                if (
-                    not isinstance(entry, dict)
-                    or type(entry.get("on_call")) is not int
-                    or entry["on_call"] < 1
-                    or not isinstance(entry.get("message"), str)
-                ):
-                    errors.append("tool_errors: invalid on_call or message")
+                if not isinstance(entry, dict):
+                    errors.append("tool_errors: invalid entry")
+                    continue
+                keyed = "when" in entry and "on_call" not in entry
+                numbered = "on_call" in entry and "when" not in entry
+                valid_when = isinstance(entry.get("when"), dict) and all(
+                    isinstance(key, str) for key in entry.get("when", {})
+                )
+                valid_number = (
+                    type(entry.get("on_call")) is int and entry["on_call"] >= 1
+                )
+                if not (
+                    (keyed and valid_when) or (numbered and valid_number)
+                ) or not isinstance(entry.get("message"), str):
+                    errors.append(
+                        "tool_errors: require one valid when/on_call and message"
+                    )
     if twins and value["episode_type"] == "clean" and value["twin_of"] in twins:
         try:
             expected = make_clean_twin(twins[value["twin_of"]])

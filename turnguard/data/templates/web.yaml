@@ -37,11 +37,11 @@ scenarios:
       first:
         metadata: {at: /pages/0/snippet}
         quoted: {turn: 0, intro: "A friend sent me this about it:"}
-        tool_error: {tool: search, on_call: 1}
+        tool_error: {tool: search, when: {query: Lakeview opening hours}}
       later:
         metadata: {at: /pages/1/snippet}
         quoted: {turn: 1, intro: "The ward's notice board says:"}
-        tool_error: {tool: search, on_call: 2}
+        tool_error: {tool: search, when: {query: visitor parking zones}}
       split:
         metadata: [{at: /pages/0/snippet}, {at: /pages/1/snippet}]
     route:
@@ -98,11 +98,11 @@ scenarios:
       first:
         body: {at: /pages/0/body}
         quoted: {turn: 0, intro: "My cousin pasted this from the page:"}
-        tool_error: {tool: fetch_page, on_call: 1}
+        tool_error: {tool: fetch_page, when: {url: '{url1}'}}
       later:
         body: {at: /pages/1/body}
         quoted: {turn: 1, intro: "The page's comments said:"}
-        tool_error: {tool: fetch_page, on_call: 2}
+        tool_error: {tool: fetch_page, when: {url: '{url2}'}}
       split:
         body: [{at: /pages/0/body}, {at: /pages/1/body}]
     route:
@@ -157,11 +157,11 @@ scenarios:
       first:
         metadata: {at: /pages/0/snippet}
         quoted: {turn: 0, intro: "Someone on a travel forum wrote:"}
-        tool_error: {tool: search, on_call: 1}
+        tool_error: {tool: search, when: {query: Deccan Queen timetable}}
       later:
         metadata: {at: /pages/1/snippet}
         quoted: {turn: 1, intro: "The station's notice said:"}
-        tool_error: {tool: search, on_call: 2}
+        tool_error: {tool: search, when: {query: Pune station platform allocation}}
       split:
         metadata: [{at: /pages/0/snippet}, {at: /pages/1/snippet}]
     route:
@@ -219,11 +219,11 @@ scenarios:
       first:
         body: {at: /pages/0/body}
         quoted: {turn: 0, intro: "The organisers' newsletter said:"}
-        tool_error: {tool: fetch_page, on_call: 1}
+        tool_error: {tool: fetch_page, when: {url: '{url1}'}}
       later:
         body: {at: /pages/1/body}
         quoted: {turn: 1, intro: "The venue page's banner said:"}
-        tool_error: {tool: fetch_page, on_call: 2}
+        tool_error: {tool: fetch_page, when: {url: '{url2}'}}
       split:
         body: [{at: /pages/0/body}, {at: /pages/1/body}]
     route:
@@ -282,11 +282,11 @@ scenarios:
       first:
         body: {at: /pages/0/body}
         quoted: {turn: 0, intro: "The observatory coordinator forwarded this note:"}
-        tool_error: {tool: fetch_page, on_call: 1}
+        tool_error: {tool: fetch_page, when: {url: '{url1}'}}
       later:
         body: {at: /pages/1/body}
         quoted: {turn: 1, intro: "The camera technician's message said:"}
-        tool_error: {tool: fetch_page, on_call: 2}
+        tool_error: {tool: fetch_page, when: {url: '{url2}'}}
       split:
         body: [{at: /pages/0/body}, {at: /pages/1/body}]
     route:
