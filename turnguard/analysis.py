@@ -50,13 +50,15 @@ def _spec_paths(run_dir: Path, config: dict, override: str | None) -> list[Path]
             or not all(isinstance(name, str) for name in raw)
         ):
             raise ValueError(
-                "Run config has no episode_paths; provide --specs with the original specs"
+                "Run config has no episode_paths; "
+                "provide --specs with the original specs"
             )
         paths = [Path(name).expanduser() for name in raw]
         paths = [path if path.is_absolute() else run_dir / path for path in paths]
     if not paths or any(not path.is_file() for path in paths):
         raise ValueError(
-            "Original episode spec file is missing; use --specs to locate the originals (hashes must match)"
+            "Original episode spec file is missing; use --specs to locate "
+            "the originals (hashes must match)"
         )
     return [path.resolve() for path in paths]
 
@@ -103,7 +105,8 @@ def load_verified_run(
             )
         if spec_sha256(specs[record.episode_id]) != record.spec_sha256:
             raise ValueError(
-                f"Spec hash mismatch for {record.episode_id}: the episode spec has changed since the run; refusing to rescore/compare"
+                f"Spec hash mismatch for {record.episode_id}: the episode spec "
+                "has changed since the run; refusing to rescore/compare"
             )
     selected = [specs[record.episode_id] for record in records]
     for spec in selected:
@@ -128,7 +131,7 @@ def load_verified_run(
 def regrade_records(
     records: list[EpisodeRecord], specs: list[dict]
 ) -> list[EpisodeRecord]:
-    """Replace only results; raw messages, calls, answers, effects and hashes stay intact."""
+    """Replace only results; raw messages, calls, answers, effects, hashes stay."""
     by_id = {spec["id"]: spec for spec in specs}
     updated = copy.deepcopy(records)
     for record in updated:

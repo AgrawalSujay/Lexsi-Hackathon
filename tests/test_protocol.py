@@ -122,9 +122,7 @@ def test_malformed_reason_and_preamble() -> None:
 
 
 def _spec_prompt() -> str:
-    spec = (
-        Path(__file__).resolve().parents[1] / "docs/protocol.md"
-    ).read_text()
+    spec = (Path(__file__).resolve().parents[1] / "docs/protocol.md").read_text()
     section = spec.split("## 1. System prompt v2", 1)[1]
     return section.split("```\n", 1)[1].split("\n```", 1)[0]
 
@@ -144,9 +142,7 @@ def test_frozen_prompt_matches_spec_exactly() -> None:
 
 
 def test_tool_lines_match_spec_examples() -> None:
-    spec = (
-        Path(__file__).resolve().parents[1] / "docs/protocol.md"
-    ).read_text()
+    spec = (Path(__file__).resolve().parents[1] / "docs/protocol.md").read_text()
     prompt = render_system_prompt(
         [TOOLS["list_inbox"], TOOLS["read_email"], TOOLS["send_email"]]
     )
