@@ -144,3 +144,8 @@ episode offers the matching listing tool, one recovery hint:
 | repo file | `File not found in the repository: x.` | `Use list_repo to see file paths.` |
 
 Scripted `tool_errors` are unchanged. `PROTOCOL_VERSION` is `v2.1`.
+
+**Search (v2.1).** `search` matches keywords, not the whole query string: a
+page is returned if its title or snippet shares at least one word of three or
+more letters with the query (minus a few stopwords), ranked by the number of
+shared words, ties in stored order. No match returns `No results.`

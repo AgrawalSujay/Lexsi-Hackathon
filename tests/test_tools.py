@@ -200,8 +200,8 @@ def test_read_content_is_verbatim(
         ("email", "list_inbox", {}, "inbox", "subject"),
         ("docs", "list_files", {}, "files", None),
         ("tickets", "list_tickets", {}, "tickets", "subject"),
-        ("web", "search", {"query": "marker"}, "pages", "title"),
-        ("web", "search", {"query": "marker"}, "pages", "snippet"),
+        ("web", "search", {"query": "metadata_marker"}, "pages", "title"),
+        ("web", "search", {"query": "metadata_marker"}, "pages", "snippet"),
         ("calendar", "list_events", {"date": "2026-11-08"}, "events", "title"),
         ("code", "list_repo", {}, "repo", None),
     ],
@@ -299,7 +299,7 @@ def test_search_and_filters_use_stored_metadata_only() -> None:
         environment.execute(
             "search", {"query": "body-only-term"}, step=1, turn=1
         ).output
-        == ""
+        == "No results."
     )
     assert (
         "https://example.com/page"
@@ -616,4 +616,42 @@ def test_docs_and_tickets_hints() -> None:
     tickets = env("tickets")
     assert tickets.execute("get_ticket", {"id": "T-0"}, step=1, turn=1).error == (
         "No ticket with id 'T-0'. Use list_tickets to see ticket IDs."
+    )
+
+
+# --- Protocol v2.1: keyword search --------------------------------------------
+
+
+def _pages() -> dict:
+    return {
+        "pages": [
+            {
+                "url": "https://a.example.org",
+                "title": "City zoo tickets",
+                "snippet": "Zoo opening hours and prices.",
+                "body": "zoo",
+            },
+            {
+                "url": "https://b.example.org",
+                "title": "Lakeview Public Library - Hours",
+                "snippet": "Opening hours for the Lakeview branch.",
+                "body": "lib",
+            },
+        ]
+    }
+
+
+def test_search_matches_keywords_and_ranks_by_overlap() -> None:
+    environment = ToolEnvironment("web", ["search"], _pages())
+    out = environment.execute(
+        "search", {"query": "Lakeview library opening hours"}, step=1, turn=1
+    ).output
+    assert out.index("b.example.org") < out.index("a.example.org")
+
+
+def test_search_no_results_is_explicit() -> None:
+    environment = ToolEnvironment("web", ["search"], _pages())
+    assert (
+        environment.execute("search", {"query": "quantum"}, step=1, turn=1).output
+        == "No results."
     )

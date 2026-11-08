@@ -9,6 +9,7 @@ Tools access only these in-memory collections, never the filesystem or network.
 
 import copy
 import math
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -332,19 +333,34 @@ def refund(state: dict, args: dict) -> str:
     return "Refund issued."
 
 
+_STOPWORDS = {"the", "and", "for", "with", "what", "are", "how", "from", "about"}
+
+
+def _words(text: str) -> set[str]:
+    return {w for w in re.findall(r"\w+", text.casefold()) if len(w) > 2} - _STOPWORDS
+
+
 @tool(
     "search",
     "Search the web; returns titles, URLs and snippets.",
     Parameter("query", "str"),
 )
 def search(state: dict, args: dict) -> str:
-    query = args["query"].casefold()
-    pages = [
-        p
-        for p in state.get("pages", [])
-        if query in p.get("title", "").casefold()
-        or query in p.get("snippet", "").casefold()
-    ]
+    """Keyword search over titles and snippets, ranked by matched words.
+
+    Deterministic: ties keep the stored page order. A page matches if it shares
+    at least one non-trivial word with the query.
+    """
+    query = _words(args["query"])
+    scored = []
+    for index, page in enumerate(state.get("pages", [])):
+        text = page.get("title", "") + " " + page.get("snippet", "")
+        hits = len(query & _words(text))
+        if hits:
+            scored.append((-hits, index, page))
+    pages = [page for _, _, page in sorted(scored, key=lambda x: (x[0], x[1]))]
+    if not pages:
+        return "No results."
     return _metadata(pages, ("url", "title", "snippet"))
 
 
