@@ -36,5 +36,9 @@ exclude = ["prompts/**"]
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP"]
 
+[tool.ruff.lint.per-file-ignores]
+# Hand-written probe data: long natural-language strings.
+"scripts/probe_v1.py" = ["E501"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
