@@ -45,33 +45,45 @@ def _environment(root: Path | None = None) -> dict:
         except (ImportError, OSError, RuntimeError):
             logger.warning("Could not inspect CUDA availability", exc_info=True)
 
-    git_commit = None
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            cwd=repo_root,
-            capture_output=True,
-            text=True,
-            check=True,
-            timeout=5,
-        )
-        git_commit = result.stdout.strip()
-    except (OSError, subprocess.SubprocessError):
-        pass
-
-    git_dirty = None
-    try:
-        status = subprocess.run(
-            ["git", "status", "--porcelain"],
-            cwd=repo_root,
-            capture_output=True,
-            text=True,
-            check=True,
-            timeout=5,
-        )
-        git_dirty = bool(status.stdout.strip())
-    except (OSError, subprocess.SubprocessError):
-        pass
+    git_commit = git_dirty = provenance = None
+    build_info = repo_root / "BUILD_INFO.json"
+    if build_info.exists():
+        # An unpacked `make colab-zip` archive: its BUILD_INFO.json is the
+        # source of truth (never git, which could belong to an enclosing repo).
+        try:
+            info = json.loads(build_info.read_text(encoding="utf-8"))
+            git_commit = info.get("git_commit")
+            git_dirty = info.get("git_dirty")
+            provenance = "BUILD_INFO.json"
+        except (OSError, ValueError):
+            logger.warning("Unreadable BUILD_INFO.json", exc_info=True)
+    else:
+        try:
+            result = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=repo_root,
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=5,
+            )
+            git_commit = result.stdout.strip()
+        except (OSError, subprocess.SubprocessError):
+            pass
+        try:
+            status = subprocess.run(
+                ["git", "status", "--porcelain"],
+                cwd=repo_root,
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=5,
+            )
+            git_dirty = bool(status.stdout.strip())
+        except (OSError, subprocess.SubprocessError):
+            pass
+        if git_commit is not None or git_dirty is not None:
+            provenance = "git"
 
     return {
         "python_version": platform.python_version(),
@@ -79,6 +91,7 @@ def _environment(root: Path | None = None) -> dict:
         "gpu_name": gpu_name,
         "git_commit": git_commit,
         "git_dirty": git_dirty,
+        "provenance": provenance,
     }
 
 

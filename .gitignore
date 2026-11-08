@@ -22,3 +22,5 @@ htmlcov/
 *.ckpt
 *.pt
 *.pth
+# Written into Colab archives by scripts/colab_zip.py only.
+/BUILD_INFO.json
