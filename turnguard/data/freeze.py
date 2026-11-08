@@ -43,7 +43,7 @@ def verify_frozen(directory: Path) -> None:
 
 
 def freeze_split(split: str, *, root: Path | None = None) -> Path:
-    """Freeze test only, hashing every file including FROZEN, except the checksum itself."""
+    """Freeze test only: hash every file (FROZEN included) except the checksums."""
     if split != "test":
         raise ValueError("Only split=test can be frozen")
     root = Path(root) if root is not None else Path(__file__).resolve().parents[2]
@@ -77,7 +77,8 @@ def freeze_split(split: str, *, root: Path | None = None) -> Path:
     try:
         (directory / "CHECKSUMS.sha256").write_text(
             "".join(
-                f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.relative_to(directory)}\n"
+                f"{hashlib.sha256(path.read_bytes()).hexdigest()}  "
+                f"{path.relative_to(directory)}\n"
                 for path in _files(directory)
             ),
             encoding="utf-8",

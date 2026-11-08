@@ -39,9 +39,12 @@ def transport(monkeypatch):
                 text += (
                     " "
                     + (
-                        "The first rendering discusses context and practical details for careful review.",
-                        "A second version presents background information using an alternative narrative structure.",
-                        "This final variation describes the situation with fresh wording and additional context.",
+                        "The first rendering discusses context and practical "
+                        "details for careful review.",
+                        "A second version presents background information "
+                        "using an alternative narrative structure.",
+                        "This final variation describes the situation with "
+                        "fresh wording and additional context.",
                     )[payload["variant"]]
                 )
             for term in payload["include_exactly_once"]:

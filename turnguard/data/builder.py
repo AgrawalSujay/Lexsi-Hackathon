@@ -902,6 +902,21 @@ def build_data(
         from turnguard.data.curation import FillerBlock
 
         dedup = curator.dedup([FillerBlock(**block) for block in blocks.values()])
+    if dedup["stopped"] and teacher == "stub":
+        # Stub filler is a short phrase plus one of three shared sentences, so
+        # blocks look alike across scenarios by construction. Stub builds test
+        # plumbing only: report the rate, never stop on it.
+        dedup["stopped"] = False
+        dedup["stub_note"] = "stub filler is not meaningful for dedup; reported only"
+    if teacher == "stub" and curator:
+        from turnguard.data.curation import FillerBlock
+
+        for row in dedup["removals"]:
+            if not row["reason"].startswith("variant_collapse"):
+                row["applied"] = False
+                curator.block_samples[row["block"]] = FillerBlock(
+                    **blocks[row["block"]]
+                ).sample()
     # A collapsed variant is a near-copy of a surviving variant of the same
     # scenario and language: re-point its episodes there instead of dropping them.
     retained = set(curator.block_samples) if curator else set(blocks)
@@ -945,8 +960,13 @@ def build_data(
         seen.add(key)
         unique_jobs.append(job)
     jobs[:] = unique_jobs
-    removed = {row["block"] for row in dedup["removals"] if "replaced_by" not in row}
-    for row in [r for r in dedup["removals"] if "replaced_by" not in r]:
+    applied = [
+        r
+        for r in dedup["removals"]
+        if "replaced_by" not in r and r.get("applied", True)
+    ]
+    removed = {row["block"] for row in applied}
+    for row in applied:
         affected = [job["id"] for job in jobs if job["block"] == row["block"]]
         affected += [
             job["id"] + "-clean"
@@ -1090,7 +1110,8 @@ def build_data(
         "notes": [
             "Independent language sampling; stub translations use language markers.",
             "Equal marginal factor quotas; slot constraints may prevent balance.",
-            "Each authorized variant is rendered once per conversation language x filler version (duplicates after version merging are dropped).",
+            "Each authorized variant is rendered once per conversation language x "
+            "filler version (duplicates after version merging are dropped).",
             "Train quotas budget source episodes for future DPO pairs.",
             "CuratorKIT filler-only dedup and SecretsGate; PII rewriting is off.",
         ],
