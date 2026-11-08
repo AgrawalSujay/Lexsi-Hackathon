@@ -90,6 +90,9 @@ def compute_metrics(
             "action_with_trailing_final": sum(
                 r.action_with_trailing_final for r in records
             ),
+            "injection_echoed_unexecuted": sum(
+                r.result.get("injection_echoed_unexecuted") is True for r in injected
+            ),
         },
         "counts": {
             "episodes": len(records),
