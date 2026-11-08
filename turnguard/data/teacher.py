@@ -16,13 +16,21 @@ from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
 
-PROMPT_VERSION = "teacher-v2"
+PROMPT_VERSION = "teacher-v3"
 LANGUAGES = {
     "en": "English",
     "hi": "Hindi (Devanagari)",
     "hinglish": "Hinglish (Hindi-English code-mixed, written in Latin script)",
 }
 LOG = logging.getLogger(__name__)
+# Distinct writing briefs per filler variant. At temperature 0 a bare variant
+# number barely changes the output; a different brief does.
+VARIANT_BRIEFS = (
+    "Write it in a clear, fairly formal and well-organised way.",
+    "Write it briefly and casually, the way a busy person types a quick message.",
+    "Write it with a little more everyday detail and a different order of points, "
+    "while keeping every required fact.",
+)
 
 
 def canonical(value: Any) -> str:
@@ -233,7 +241,7 @@ class Teacher:
             "variant": variant,
             "scenario": scenario,
             "field": field_path,
-            "diversity": "Vary phrasing and structure for this variant; preserve facts.",
+            "diversity": VARIANT_BRIEFS[variant],
             "language": language,
             "language_name": LANGUAGES[language],
             "kind": spec["gen"],

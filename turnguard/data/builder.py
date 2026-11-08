@@ -476,16 +476,26 @@ def check(scenario: dict, episode: dict) -> list[str]:
         # Main path: each state part is in the result of the FIRST tool call of
         # some user turn, not only somewhere along the route.
         firsts, waiting = [], False
+        results_by_turn: list[list[str]] = []
         for message in good.messages_model[1:]:
             content = message.get("content") or ""
             if message["role"] == "user" and not content.startswith("TOOL RESULT"):
                 waiting = True
-            elif message["role"] == "user" and waiting:
-                firsts.append(content)
-                waiting = False
+                results_by_turn.append([])
+            elif message["role"] == "user":
+                results_by_turn[-1].append(content)
+                if waiting:
+                    firsts.append(content)
+                    waiting = False
         for part in block["parts"]:
             if part["where"] == "state" and not any(part["text"] in f for f in firsts):
                 problems.append(f"part at {part['slot']} is not on a turn's first call")
+        # "later" must stay later: keyword search can return a turn-2 page in
+        # turn 1, and teacher text can add the overlapping word.
+        if episode["position"] == "later" and results_by_turn:
+            early = "\n".join(results_by_turn[0])
+            if any(part["text"] in early for part in block["parts"]):
+                problems.append("later leaks into turn 1")
     if block and episode["position"] == "split":
         parts = block["parts"]
         results = [
@@ -822,8 +832,11 @@ def build_data(
         for index, variant in enumerate(scenario.get("authorized", [])):
             if split != "test" and variant["carrier"] == "tool_error":
                 continue
-            for conversation in conversations:
-                filler_variant = rng.randrange(3)
+            # Once per (conversation language x filler version): up to 9 per
+            # variant, so authorized episodes reach the PLAN targets.
+            for conversation, filler_variant in itertools.product(
+                conversations, range(3)
+            ):
                 jobs.append(
                     {
                         "id": (
@@ -879,6 +892,8 @@ def build_data(
     dedup = {
         "blocks": len(blocks),
         "removed": 0,
+        "variant_collapsed": 0,
+        "cross_scenario_removed": 0,
         "removal_rate": 0,
         "removals": [],
         "stopped": False,
@@ -887,8 +902,51 @@ def build_data(
         from turnguard.data.curation import FillerBlock
 
         dedup = curator.dedup([FillerBlock(**block) for block in blocks.values()])
-    removed = {row["block"] for row in dedup["removals"]}
+    # A collapsed variant is a near-copy of a surviving variant of the same
+    # scenario and language: re-point its episodes there instead of dropping them.
+    retained = set(curator.block_samples) if curator else set(blocks)
     for row in dedup["removals"]:
+        if not row["reason"].startswith("variant_collapse"):
+            continue
+        gone = blocks[row["block"]]
+        survivor = next(
+            (
+                block_id
+                for block_id in sorted(retained)
+                if blocks[block_id]["scenario"] == gone["scenario"]
+                and blocks[block_id]["language"] == gone["language"]
+            ),
+            None,
+        )
+        if survivor is not None:
+            row["replaced_by"] = survivor
+            for job in jobs:
+                if job["block"] == row["block"]:
+                    job["block"] = survivor
+    # Merging versions can make two jobs identical (same episode on the same
+    # surviving filler). Keep the first; record the rest.
+    seen: set[tuple] = set()
+    unique_jobs = []
+    for job in jobs:
+        if job["kind"] == "injected":
+            key = ("injected", tuple(sorted(job["item"].factors().items())))
+        else:
+            key = ("authorized", job["scenario"]["id"], job["index"], job["language"])
+        key += (job["block"],)
+        if key in seen:
+            rejected.append(
+                {
+                    "id": job["id"],
+                    "block": job["block"],
+                    "reasons": ["duplicate_after_merge"],
+                }
+            )
+            continue
+        seen.add(key)
+        unique_jobs.append(job)
+    jobs[:] = unique_jobs
+    removed = {row["block"] for row in dedup["removals"] if "replaced_by" not in row}
+    for row in [r for r in dedup["removals"] if "replaced_by" not in r]:
         affected = [job["id"] for job in jobs if job["block"] == row["block"]]
         affected += [
             job["id"] + "-clean"
@@ -918,7 +976,8 @@ def build_data(
             encoding="utf-8",
         )
         raise ValueError(
-            f"Filler dedup removed {dedup['removed']}/{dedup['blocks']} blocks "
+            f"Filler dedup removed {dedup['cross_scenario_removed']}/"
+            f"{dedup['blocks']} blocks as cross-scenario duplicates "
             f"({dedup['removal_rate']:.1%}), above 5%; stopped. "
             f"See {output / 'dedup_report.json'}"
         )
@@ -1031,7 +1090,7 @@ def build_data(
         "notes": [
             "Independent language sampling; stub translations use language markers.",
             "Equal marginal factor quotas; slot constraints may prevent balance.",
-            "Each authorized variant is rendered once per conversation language.",
+            "Each authorized variant is rendered once per conversation language x filler version (duplicates after version merging are dropped).",
             "Train quotas budget source episodes for future DPO pairs.",
             "CuratorKIT filler-only dedup and SecretsGate; PII rewriting is off.",
         ],

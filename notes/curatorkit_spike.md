@@ -30,12 +30,15 @@ import os
 from curatorkit.llm.litellm import LiteLLMBackend
 
 llm = LiteLLMBackend(
-    model=os.environ["CK_MODEL"],              # LiteLLM provider/model name
+    model=os.environ["CK_MODEL"],  # LiteLLM provider/model name
     api_base=os.getenv("CK_API_BASE"),
-    temperature=0.0, max_tokens=512, max_retries=0,
+    temperature=0.0,
+    max_tokens=512,
+    max_retries=0,
 )
 response = llm.generate(
-    [{"role": "user", "content": prompt}], seed=1234,
+    [{"role": "user", "content": prompt}],
+    seed=1234,
 )
 ```
 

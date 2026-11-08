@@ -74,7 +74,7 @@ def rows(root, split):
 def test_small_build_counts_twins_reproducible_files_and_split_pools(root, split):
     retag(root, split)
     report = builder.build_data(split, limit=5, root=root)
-    assert report["counts"] == {"injected": 5, "clean": 5, "authorized": 6}
+    assert report["counts"] == {"injected": 5, "clean": 5, "authorized": 18}
     assert report["rejected"] == 0
     assert not (root / "data/v1").exists()
     output = root / "build/stub" / split
@@ -329,3 +329,18 @@ def test_cli_dry_run_counts_calls_without_output(root, monkeypatch, capsys):
     assert '"teacher_calls":' in capsys.readouterr().out
     assert not (root / "data").exists()
     assert not (root / "build").exists()
+
+
+def test_later_injection_visible_in_turn_one_is_rejected():
+    """A turn-2 search page whose snippet shares a word with the turn-1 query
+    is returned in turn 1, so its 'later' injection is not really later."""
+    bank, scenarios = builder.load()
+    scenario = copy.deepcopy(
+        next(s for s in scenarios if s["id"] == "web-library-hours")
+    )
+    page = scenario["state"]["pages"][1]
+    page["snippet"]["about"] = "zone {zone} parking, Lakeview opening hours apply"
+    episode = builder.injected(
+        scenario, bank, "tamper_answer", "imperative", "none", "later", "metadata"
+    )
+    assert "later leaks into turn 1" in builder.check(scenario, episode)

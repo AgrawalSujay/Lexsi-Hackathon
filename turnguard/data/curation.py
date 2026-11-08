@@ -147,10 +147,8 @@ class CuratorPass:
         self.removals = []
         self.block_samples = {}
 
-    def dedup(self, blocks: list[FillerBlock]) -> dict:
-        self.removals = []
-        samples = [block.sample() for block in blocks]
-        self.filler_result = Pipeline(
+    def _dedup_stage(self, samples: list[DataSample], removals: list[dict]):
+        return Pipeline(
             [
                 MemoryReader(samples),
                 SchemaGate(
@@ -158,25 +156,58 @@ class CuratorPass:
                     min_tokens=1,
                     max_tokens=1_000_000,
                 ),
-                TrackedDedup(ExactDeduplicator(), self.removals),
-                TrackedDedup(
-                    MinHashDeduplicator(**self.config["minhash"]), self.removals
-                ),
+                TrackedDedup(ExactDeduplicator(), removals),
+                TrackedDedup(MinHashDeduplicator(**self.config["minhash"]), removals),
             ]
         ).run()
+
+    def dedup(self, blocks: list[FillerBlock]) -> dict:
+        """Two passes, so that only cross-scenario repetition can stop a build.
+
+        1. Within each (scenario, language): near-identical filler variants
+           collapse to one ("variant_collapse"). That only means fewer versions
+           of the same scenario, which is expected at temperature 0, so it does
+           not count toward the stop threshold.
+        2. Across all survivors: a block duplicating another scenario's filler is
+           removed and counts toward `max_removal_rate`, because that means the
+           teacher is repeating itself across different contexts.
+        """
+        self.removals = []
+        groups: dict[tuple[str, str], list[DataSample]] = {}
+        for block in blocks:
+            groups.setdefault((block.scenario, block.language), []).append(
+                block.sample()
+            )
+        collapsed: list[dict] = []
+        survivors: list[DataSample] = []
+        for group in groups.values():
+            found: list[dict] = []
+            result = self._dedup_stage(group, found)
+            survivors.extend(result.passed)
+            collapsed.extend(
+                {"block": row["block"], "reason": "variant_collapse:" + row["reason"]}
+                for row in found
+            )
+            collapsed.extend(
+                {"block": s.id, "reason": s.rejection_reason} for s in result.rejected
+            )
+        self.filler_result = self._dedup_stage(survivors, self.removals)
         for sample in self.filler_result.rejected:
             self.removals.append(
                 {"block": sample.id, "reason": sample.rejection_reason}
             )
+        counted = len(self.removals)
+        self.removals.extend(collapsed)
         self.block_samples = {sample.id: sample for sample in self.filler_result.passed}
         return {
             "blocks": len(blocks),
             "removed": len(self.removals),
-            "removal_rate": len(self.removals) / len(blocks) if blocks else 0,
+            "variant_collapsed": len(collapsed),
+            "cross_scenario_removed": counted,
+            "removal_rate": counted / len(blocks) if blocks else 0,
             "removals": self.removals,
             "stopped": bool(
-                blocks
-                and len(self.removals) / len(blocks) > self.config["max_removal_rate"]
+                blocks and counted / len(blocks) > self.config["max_removal_rate"]
             ),
         }
 
@@ -324,9 +355,12 @@ class CuratorPass:
                 "Dedup compares generated filler blocks "
                 "(scenario × variant × language), not episodes. "
                 "Dependent base/twin/authorized episodes stay together.\n\n"
-                f"Removed filler blocks: {report['dedup']['removed']}/"
-                f"{report['dedup']['blocks']} "
-                f"({report['dedup']['removal_rate']:.1%}); stops above 5%.\n"
+                "Filler blocks: "
+                f"{report['dedup']['variant_collapsed']} near-identical versions of "
+                "the same scenario merged (their episodes use the surviving "
+                f"version); {report['dedup']['cross_scenario_removed']}/"
+                f"{report['dedup']['blocks']} removed as cross-scenario duplicates "
+                f"({report['dedup']['removal_rate']:.1%}); the build stops above 5%.\n"
             )
         # Card and all other artifacts precede checksums; omit checksum itself.
         manifest.write_checksums(

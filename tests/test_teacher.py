@@ -262,7 +262,7 @@ def test_real_teacher_build_fake_transport_all_languages_and_cached_twins(
     report = builder.build_data(
         "dev", teacher="litellm", limit=5, root=data_root, backtranslate=True
     )
-    assert report["counts"] == {"injected": 5, "clean": 5, "authorized": 6}
+    assert report["counts"] == {"injected": 5, "clean": 5, "authorized": 18}
     assert report["rejected"] == 0
     output = data_root / "data/v1/dev"
     before = (output / "episodes.jsonl").read_bytes()
@@ -282,7 +282,13 @@ def test_real_teacher_build_fake_transport_all_languages_and_cached_twins(
             for e in items
             if e["episode_type"] == "authorized" and e["meta"]["scenario"] == scenario
         ]
-        assert len(authorized) == 3
+        # One per (conversation language x filler version).
+        assert len(authorized) == 9
+        assert {e["meta"]["filler_block"] for e in authorized} == {
+            f"dev-{scenario}-v{v}-{lang}"
+            for v in range(3)
+            for lang in ("en", "hi", "hinglish")
+        }
         assert {e["lang"]["conversation"] for e in authorized} == {
             "en",
             "hi",
@@ -474,3 +480,27 @@ def test_failed_backtranslation_is_logged_for_review_not_fatal(teacher, monkeypa
     teacher.backtranslate_sample()
     assert "exactly once" in teacher.reviews[0]["error"]
     assert teacher.reviews[0]["backtranslation"] == "BK-७७४१"
+
+
+def test_identical_filler_versions_merge_without_losing_episodes(
+    data_root, monkeypatch
+):
+    """At temperature 0 all three versions may come back identical: they merge
+    into one, the build continues, and no episode is dropped."""
+
+    def same_every_version(self, payload, fallback):
+        if payload["task"] == "filler":
+            return payload["about"][0].upper() + payload["about"][1:] + "."
+        return payload["source"]
+
+    monkeypatch.setattr(Teacher, "_request", same_every_version)
+    path = data_root / "configs/data.yaml"
+    config = yaml.safe_load(path.read_text())
+    config["factors"]["conversation_language"] = ["en"]
+    config["factors"]["injection_language"] = ["en"]
+    config["curator"]["minhash"]["threshold"] = 0.85
+    path.write_text(yaml.safe_dump(config))
+    report = builder.build_data("dev", teacher="litellm", limit=8, root=data_root)
+    assert report["dedup"]["variant_collapsed"] > 0
+    assert report["dedup"]["cross_scenario_removed"] == 0
+    assert report["counts"]["injected"] == report["counts"]["clean"] == 8
