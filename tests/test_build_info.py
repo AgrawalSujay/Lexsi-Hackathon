@@ -6,6 +6,8 @@ import subprocess
 import zipfile
 from pathlib import Path
 
+import pytest
+
 from turnguard.runs import _environment
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -39,6 +41,7 @@ def test_build_info_is_gitignored() -> None:
     assert "/BUILD_INFO.json" in (ROOT / ".gitignore").read_text().splitlines()
 
 
+@pytest.mark.skipif(not (ROOT / ".git").exists(), reason="needs a git checkout")
 def test_colab_zip_contains_head_and_build_info(tmp_path: Path) -> None:
     spec = importlib.util.spec_from_file_location(
         "colab_zip", ROOT / "scripts/colab_zip.py"

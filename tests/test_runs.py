@@ -13,6 +13,13 @@ from unittest.mock import Mock, call, patch
 
 from turnguard.runs import _environment, new_run_dir
 
+# These exercise the git code path at the package root; an unpacked
+# `make colab-zip` archive uses BUILD_INFO.json there instead.
+NEEDS_GIT_CHECKOUT = unittest.skipIf(
+    (Path(__file__).resolve().parents[1] / "BUILD_INFO.json").exists(),
+    "needs a git checkout, not an unpacked archive",
+)
+
 
 class RunDirectoryTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -94,6 +101,7 @@ class RunDirectoryTests(unittest.TestCase):
 
 
 class EnvironmentTests(unittest.TestCase):
+    @NEEDS_GIT_CHECKOUT
     def test_missing_optional_packages_and_git_are_null(self) -> None:
         with (
             patch(
@@ -111,6 +119,7 @@ class EnvironmentTests(unittest.TestCase):
         self.assertIsNone(environment["git_dirty"])
         importer.assert_not_called()
 
+    @NEEDS_GIT_CHECKOUT
     def test_installed_versions_gpu_and_commit_are_recorded(self) -> None:
         torch = Mock()
         torch.cuda.is_available.return_value = True
@@ -134,6 +143,7 @@ class EnvironmentTests(unittest.TestCase):
         self.assertEqual(environment["gpu_name"], "Fake test GPU")
         self.assertEqual(environment["git_commit"], "abc123")
 
+    @NEEDS_GIT_CHECKOUT
     def test_cpu_only_torch_and_unborn_git_have_null_values(self) -> None:
         torch = Mock()
         torch.cuda.is_available.return_value = False
@@ -196,6 +206,7 @@ class EnvironmentTests(unittest.TestCase):
                 ],
             )
 
+    @NEEDS_GIT_CHECKOUT
     def test_unborn_repo_still_records_dirty_status(self) -> None:
         with (
             patch(
