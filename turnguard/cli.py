@@ -254,6 +254,93 @@ def _eval_xstest(args: argparse.Namespace) -> int:
     return int(metrics["generation_errors"] > 0 or metrics.get("judge_errors", 0) > 0)
 
 
+def _eval_mmlu(args: argparse.Namespace) -> int:
+    from turnguard.evals.global_mmlu import (
+        EXTRACTION_VERSION,
+        auditkit_scores,
+        evaluate_mmlu,
+        load_items,
+        select_items,
+    )
+
+    root = Path(__file__).resolve().parents[1]
+    config_path = Path(args.config).resolve()
+    config = load_config(config_path)
+    benchmark = config["global_mmlu"]
+    if benchmark["extraction_version"] != EXTRACTION_VERSION:
+        raise ValueError("Unsupported Global-MMLU extraction version")
+    if type(benchmark["max_new_tokens"]) is not int or benchmark["max_new_tokens"] < 1:
+        raise ValueError("Global-MMLU token limit must be a positive integer")
+    if args.limit is not None and args.limit < 1:
+        raise ValueError("limit must be a positive integer")
+    if args.judge != "none":
+        raise ValueError(
+            "Global-MMLU uses answer keys; --judge teacher is for XSTest only"
+        )
+    arms_path = (
+        Path(args.arms_config) if args.arms_config else root / config["arms_config"]
+    )
+    arm_spec = resolve_arm(args.arm, load_config(arms_path))
+    models = load_config(root / config["models_config"])
+    items = select_items(
+        load_items(benchmark, cache_dir=root / ".cache/hf"),
+        args.limit,
+        seed=config["seed"],
+    )
+    generator = HFGenerator(
+        models["models"][args.model],
+        max_new_tokens=benchmark["max_new_tokens"],
+        batch_size=config["batch_size"],
+        seed=config["seed"],
+    )
+    arm_spec.apply(generator)
+    run_dir = new_run_dir(args.arm, args.model, "mmlu", root=args.root)
+    resolved = {
+        **config,
+        "config_path": str(config_path),
+        "benchmark": "global_mmlu",
+        "model_key": args.model,
+        "model": generator.name,
+        "arm": args.arm,
+        "arm_config": asdict(arm_spec),
+        "judge": "none",
+        "limit": args.limit,
+        "selected_ids": [item.id for item in items],
+        "decoding": {
+            "do_sample": False,
+            "max_new_tokens": benchmark["max_new_tokens"],
+            "chat_template": "tokenizer",
+            "padding_side": "left",
+        },
+    }
+    (run_dir / "config.yaml").write_text(
+        yaml.safe_dump(resolved, allow_unicode=True, sort_keys=False), encoding="utf-8"
+    )
+    records, metrics = evaluate_mmlu(
+        items,
+        generator,
+        instructions=benchmark["instructions"],
+        system_prompt=arm_spec.system_prompt,
+        batch_size=config["batch_size"],
+    )
+    (run_dir / "episodes.jsonl").write_text(
+        "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in records),
+        encoding="utf-8",
+    )
+    (run_dir / "metrics.json").write_text(
+        json.dumps(metrics, indent=2, allow_nan=False) + "\n", encoding="utf-8"
+    )
+    audit = auditkit_scores(records, cache_dir=run_dir / ".cache")
+    (run_dir / "auditkit.json").write_text(
+        json.dumps(audit, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
+    print(f"Run directory: {run_dir}")
+    print(json.dumps(metrics, indent=2))
+    return int(
+        any(group["generation_errors"] for group in metrics["languages"].values())
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="turnguard", description="Evaluate and repair multi-turn prompt injection."
@@ -301,6 +388,26 @@ def main(argv: list[str] | None = None) -> int:
     )
     xstest.add_argument("--arms-config", help="Override the shared arm configuration")
     xstest.add_argument("--root", help="Override output root for runs/")
+    mmlu = commands.add_parser(
+        "eval-mmlu", help="Evaluate English/Hindi Global-MMLU-Lite"
+    )
+    mmlu.add_argument("--model", choices=("dev", "headline"), required=True)
+    mmlu.add_argument("--arm", default="A0")
+    mmlu.add_argument(
+        "--limit", type=int, help="Total smoke items, balanced across en/hi"
+    )
+    mmlu.add_argument(
+        "--judge",
+        choices=("none", "teacher"),
+        default="none",
+        help="MMLU uses answer keys; teacher judging is XSTest-only",
+    )
+    mmlu.add_argument(
+        "--config",
+        default=str(Path(__file__).resolve().parents[1] / "configs/evals.yaml"),
+    )
+    mmlu.add_argument("--arms-config", help="Override the shared arm configuration")
+    mmlu.add_argument("--root", help="Override output root for runs/")
     build = commands.add_parser("build-data", help="Build validated episode specs")
     build.add_argument("--split", choices=("train", "dev", "test"), required=True)
     build.add_argument("--teacher", choices=("stub", "litellm"), required=True)
@@ -323,6 +430,14 @@ def main(argv: list[str] | None = None) -> int:
     for name in ("train", "eval-external", "report"):
         commands.add_parser(name, help="not implemented yet")
     args = parser.parse_args(argv)
+    if args.command == "eval-mmlu":
+        try:
+            return _eval_mmlu(args)
+        except (ValueError, OSError, KeyError, ImportError, yaml.YAMLError) as error:
+            parser.error(
+                f"Global-MMLU setup/run failed ({type(error).__name__}); "
+                "check configuration and dependencies"
+            )
     if args.command == "eval-xstest":
         try:
             return _eval_xstest(args)

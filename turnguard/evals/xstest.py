@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from turnguard.data.teacher import Teacher, read_settings
+from turnguard.evals.common import auditkit_cache
 from turnguard.metrics import rate
 from turnguard.models import Generator, GenRequest
 
@@ -299,24 +300,7 @@ def summarize(records: list[dict], field: str) -> dict:
 
 def auditkit_scores(records: list[dict], *, cache_dir: Path) -> dict:
     """Use AK's native precomputed evaluation/scorers/records, preserving raw text."""
-    import os
-    from contextlib import contextmanager
-
     import auditkit as ak
-
-    # AuditKIT 1.1.6 has no per-evaluate cache-dir option. Scope its XDG cache
-    # to this run, restore immediately, and do not use its model backend.
-    @contextmanager
-    def local_cache():
-        prior = os.environ.get("XDG_CACHE_HOME")
-        os.environ["XDG_CACHE_HOME"] = str(cache_dir)
-        try:
-            yield
-        finally:
-            if prior is None:
-                os.environ.pop("XDG_CACHE_HOME", None)
-            else:
-                os.environ["XDG_CACHE_HOME"] = prior
 
     views = {}
     for field in ("regex_class", "teacher_class"):
@@ -350,7 +334,7 @@ def auditkit_scores(records: list[dict], *, cache_dir: Path) -> dict:
                 )
                 for row in chosen
             ]
-            with local_cache():
+            with auditkit_cache(cache_dir):
                 result = ak.evaluate(
                     samples,
                     model="precomputed",

@@ -21,7 +21,7 @@ gpu = [
     "auditkit[transformers]",
 ]
 data = ["curatorkit[generation]", "detect-secrets>=1.4"]
-eval = ["huggingface_hub"]
+eval = ["huggingface_hub", "datasets"]
 circuit = ["circuitkit"]
 
 [tool.setuptools.packages.find]

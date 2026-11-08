@@ -21,10 +21,15 @@ xstest:
     num_retries: 0
     drop_params: false
     extra_body: {}
-# Dataset identity reserved now; implementation follows at the next cowork stop.
 global_mmlu:
   dataset: CohereLabs/Global-MMLU-Lite
   revision: 36c2fd756f19ccf13a9a96c8e53ccecc02192b8b
   languages: [en, hi]
   split: test
+  license: apache-2.0
+  expected_counts: {en: 400, hi: 400}
+  extraction_version: mmlu-answer-v1
   max_new_tokens: 16
+  instructions:
+    en: "Answer the multiple-choice question. Reply with only one letter: A, B, C, or D."
+    hi: "बहुविकल्पीय प्रश्न का उत्तर दें। केवल एक अक्षर लिखें: A, B, C या D।"

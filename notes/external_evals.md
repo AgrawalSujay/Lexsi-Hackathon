@@ -1,7 +1,7 @@
-# Task 05: XSTest (first cowork stop)
+# Task 05: external side-effect evaluations
 
-Implemented on `task05`, based on main `5854465`. Global-MMLU remains a
-stub for the next stop; its dataset identity is already pinned in `configs/evals.yaml`.
+Implemented on `task05`, based on main `5854465`. XSTest was approved
+and committed as `8f1be69`; Global-MMLU is implemented for the second checkpoint.
 
 ## Data and scoring
 
@@ -97,4 +97,66 @@ Each run writes `config.yaml` (including pinned dataset, resolved arm, and
 256-token greedy decoding), raw `episodes.jsonl`, `metrics.json`, `env.json`,
 `auditkit.json`, and optional `judge_calls.jsonl` under
 `runs/<arm>__<model-key>__xstest__<timestamp>/`. Console output is aggregate-only.
-No Task 05 commits, model runs, paid calls, merges or pushes have been made.
+No model runs, paid calls, merges or pushes have been made.
+
+
+## Global-MMLU (second cowork stop)
+
+[CohereLabs/Global-MMLU-Lite](https://huggingface.co/datasets/CohereLabs/Global-MMLU-Lite/blob/36c2fd756f19ccf13a9a96c8e53ccecc02192b8b/README.md)
+is pinned to `36c2fd756f19ccf13a9a96c8e53ccecc02192b8b` (Apache-2.0).
+The pinned card lists 400 test items in English and 400 in Hindi. The loader
+reads both complete test sets by default and validates those counts before any
+smoke sampling. It does not include the dev/few-shot partition. `--limit N`
+means N total questions, alternating seeded en/hi strata; all full-run items
+are retained. Each language reports its actual total and graded n. The same
+source sample ID is namespaced by language so English and Hindi cannot collide.
+
+Questions/options come directly from `question`, `option_a` through `option_d`,
+with `answer` as the gold letter. The user message ends with a localized
+letter-only instruction from `configs/evals.yaml`; Hindi uses Devanagari prose
+with A/B/C/D option labels. A0 has no system message; other arms use the same
+shared runtime as XSTest and the agent benchmark. Generation uses HFGenerator,
+greedy decoding and a default 16-token cap, recorded in the resolved run config.
+No agent tools or protocol text is introduced.
+
+The versioned extractor handles standalone letters, markdown/punctuation,
+English/Hindi answer markers, Hindi pronunciations ए/बी/सी/डी and Unicode
+full-width letters. A clear terminal final-answer marker takes precedence over
+reasoning; otherwise conflicting letters are unparseable. It does not infer an
+answer from option text or the first letter of an English word/article.
+Unparseable responses (including valid empty generations) count as wrong and
+are reported separately. Calls failing twice remain ungraded with explicit
+error counts, as required by PLAN; they are not silently treated as an answer.
+Accuracy and Wilson CIs use `turnguard.metrics.rate` per language.
+
+AuditKIT `evaluate(model="precomputed")` records each language separately with
+a custom accuracy scorer using that same extractor. Unparseable answers remain
+measured zeros, raw model outputs stay in prediction records, and its means
+agree with TurnGuard rates. A custom scorer preserves raw responses while
+supporting Hindi; the stock string exact match or English extraction would not
+handle these outputs correctly. TurnGuard supplies the required Wilson interval.
+As for XSTest, AuditKIT does not generate or choose a model. The scoped cache
+helper is shared between evals and serialized with a lock.
+
+MMLU is scored against answer keys and never calls a teacher. The common
+`--judge` option accepts `none`; choosing `teacher` fails before loading data or
+models, explaining that teacher judging applies only to XSTest.
+
+CPU verification in `~/Downloads/turnguard`:
+
+```sh
+.venv/bin/python -m pytest tests/test_global_mmlu.py tests/test_xstest.py -q
+```
+
+User-run model smoke (implementer has not run it):
+
+```sh
+python -m turnguard eval-mmlu --model dev --arm A0 --limit 5
+# All 800 test questions, no few-shot/dev questions:
+python -m turnguard eval-mmlu --model headline --arm A0
+```
+
+Install the optional eval extra for HF dataset loading. The output layout is
+`runs/<arm>__<model-key>__mmlu__<timestamp>/` with `config.yaml`, raw
+`episodes.jsonl`, `metrics.json`, `env.json` and `auditkit.json`. Global-MMLU
+changes remain uncommitted pending review at this checkpoint.
