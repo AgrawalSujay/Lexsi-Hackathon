@@ -15,31 +15,56 @@ from turnguard.harness import run_episodes
 from turnguard.metrics import compute_metrics
 from turnguard.models import HFGenerator, StubGenerator
 from turnguard.protocol import PROTOCOL_VERSION
-from turnguard.runs import new_run_dir
+from turnguard.runs import RunTimer, new_run_dir
 from turnguard.schema import EpisodeSpec, validate_episode
 
 
 def _run(args: argparse.Namespace) -> int:
+    timer = RunTimer()
     config_path = Path(args.config).expanduser().resolve()
     config = load_config(config_path)
-    paths = [
-        Path(p).resolve()
-        for p in sorted(glob.glob(str(Path(args.episodes).expanduser())))
-    ]
-    if not paths:
-        raise ValueError(f"No episode files match: {args.episodes}")
-    specs = [EpisodeSpec.from_json(path.read_text(encoding="utf-8")) for path in paths]
-    by_id = {spec.id: spec for spec in specs}
-    if len(by_id) != len(specs):
-        raise ValueError("Episode IDs must be unique")
-    for spec in specs:
-        if spec.split != args.split:
+    from turnguard.data.loaders import load_split, select_episodes, split_fingerprint
+
+    source = Path(args.episodes).expanduser().resolve()
+    dataset = None
+    if source.is_dir() or source.name == "episodes.jsonl":
+        directory = source if source.is_dir() else source.parent
+        before = split_fingerprint(directory)
+        specs = load_split(args.split, purpose="eval", directory=directory)
+        if split_fingerprint(directory) != before:
             raise ValueError(
-                f"{spec.id}: split {spec.split!r} does not match --split {args.split!r}"
+                "Dataset changed while loading; retry after build completes"
             )
-        problems = validate_episode(spec, twins=by_id)
-        if problems:
-            raise ValueError(f"{spec.id}: {'; '.join(problems)}")
+        dataset = {"directory": str(directory), "split": args.split, **before}
+        paths = [directory / "episodes.jsonl"]
+    else:
+        if args.split in ("test", "test_cueflip"):
+            raise ValueError("Test evaluation requires a frozen built split directory")
+        paths = [
+            Path(p).resolve()
+            for p in sorted(glob.glob(str(Path(args.episodes).expanduser())))
+        ]
+        if not paths:
+            raise ValueError(f"No episode files match: {args.episodes}")
+        specs = [
+            EpisodeSpec.from_json(path.read_text(encoding="utf-8")) for path in paths
+        ]
+        by_id = {spec.id: spec for spec in specs}
+        if len(by_id) != len(specs):
+            raise ValueError("Episode IDs must be unique")
+        for spec in specs:
+            if spec.split != args.split:
+                raise ValueError(
+                    f"{spec.id}: split {spec.split!r} does not match "
+                    f"--split {args.split!r}"
+                )
+            problems = validate_episode(spec, twins=by_id)
+            if problems:
+                raise ValueError(f"{spec.id}: {'; '.join(problems)}")
+    specs = select_episodes(specs, limit=args.limit, shard=args.shard)
+    if not specs:
+        raise ValueError("No episodes selected for this limit/shard")
+    by_id = {spec.id: spec for spec in specs}
     arm_spec = resolve_arm(args.arm, load_config(args.arms_config))
     script_info = {}
     decoding = config["decoding"]
@@ -89,6 +114,7 @@ def _run(args: argparse.Namespace) -> int:
         raise ValueError("system_extra conflicts with the configured arm prompt")
     if extra is not None and not isinstance(extra, str):
         raise ValueError("system_extra must be a string or null")
+    timer.start_generation()
     records = run_episodes(
         specs,
         generator,
@@ -97,6 +123,7 @@ def _run(args: argparse.Namespace) -> int:
         system_extra=extra,
         arm=args.arm,
     )
+    timer.finish_generation()
     metrics = compute_metrics(records, specs)
     resolved = {
         **config,
@@ -108,12 +135,19 @@ def _run(args: argparse.Namespace) -> int:
         "model": generator.name,
         "system_extra": extra,
         "episode_paths": [str(path) for path in paths],
+        "dataset": dataset,
+        "limit": args.limit,
+        "shard": args.shard,
+        "selected_ids": [spec.id for spec in specs],
         "model_key": args.model if args.generator == "hf" else None,
         "inference": {"batch_size": batch_size},
         "protocol_version": PROTOCOL_VERSION,
         **script_info,
     }
-    run_dir = new_run_dir(args.arm, generator.name, args.split, root=args.root)
+    label = args.split
+    if args.shard:
+        label += "-shard-" + args.shard.replace("/", "-of-")
+    run_dir = new_run_dir(args.arm, generator.name, label, root=args.root)
     (run_dir / "config.yaml").write_text(
         yaml.safe_dump(resolved, allow_unicode=True, sort_keys=False), encoding="utf-8"
     )
@@ -124,6 +158,7 @@ def _run(args: argparse.Namespace) -> int:
         json.dumps(metrics, indent=2, ensure_ascii=False, allow_nan=False) + "\n",
         encoding="utf-8",
     )
+    timer.finish(run_dir)
     print(f"Run directory: {run_dir}")
     print(f"{'Episode':<25} {'Type':<12} {'Tag':<10} {'Steps':>5} {'Malformed':>9}")
     for record in records:
@@ -151,6 +186,7 @@ def _run(args: argparse.Namespace) -> int:
             )
         )
         print(f"{name}: {value['k']}/{value['n']} = {estimate}")
+    print("by_language: " + json.dumps(metrics["by_language"], ensure_ascii=False))
     print("first_violation_step: " + json.dumps(metrics["first_violation_step"]))
     print(
         f"Ungraded: {metrics['counts']['ungraded']}; "
@@ -160,6 +196,7 @@ def _run(args: argparse.Namespace) -> int:
 
 
 def _eval_xstest(args: argparse.Namespace) -> int:
+    timer = RunTimer()
     from turnguard.evals.xstest import (
         CLASSIFIER_VERSION,
         auditkit_scores,
@@ -228,6 +265,7 @@ def _eval_xstest(args: argparse.Namespace) -> int:
     (run_dir / "config.yaml").write_text(
         yaml.safe_dump(resolved, allow_unicode=True, sort_keys=False), encoding="utf-8"
     )
+    timer.start_generation()
     records, metrics = evaluate_xstest(
         items,
         generator,
@@ -235,6 +273,7 @@ def _eval_xstest(args: argparse.Namespace) -> int:
         judge=classifier,
         batch_size=config["batch_size"],
     )
+    timer.finish_generation()
     (run_dir / "episodes.jsonl").write_text(
         "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in records),
         encoding="utf-8",
@@ -250,12 +289,14 @@ def _eval_xstest(args: argparse.Namespace) -> int:
     (run_dir / "auditkit.json").write_text(
         json.dumps(audit, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
     )
+    timer.finish(run_dir)
     print(f"Run directory: {run_dir}")
     print(json.dumps(metrics, indent=2))
     return int(metrics["generation_errors"] > 0 or metrics.get("judge_errors", 0) > 0)
 
 
 def _eval_mmlu(args: argparse.Namespace) -> int:
+    timer = RunTimer()
     from turnguard.evals.global_mmlu import (
         EXTRACTION_VERSION,
         auditkit_scores,
@@ -317,6 +358,7 @@ def _eval_mmlu(args: argparse.Namespace) -> int:
     (run_dir / "config.yaml").write_text(
         yaml.safe_dump(resolved, allow_unicode=True, sort_keys=False), encoding="utf-8"
     )
+    timer.start_generation()
     records, metrics = evaluate_mmlu(
         items,
         generator,
@@ -324,6 +366,7 @@ def _eval_mmlu(args: argparse.Namespace) -> int:
         system_prompt=arm_spec.system_prompt,
         batch_size=config["batch_size"],
     )
+    timer.finish_generation()
     (run_dir / "episodes.jsonl").write_text(
         "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in records),
         encoding="utf-8",
@@ -335,6 +378,7 @@ def _eval_mmlu(args: argparse.Namespace) -> int:
     (run_dir / "auditkit.json").write_text(
         json.dumps(audit, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
     )
+    timer.finish(run_dir)
     print(f"Run directory: {run_dir}")
     print(json.dumps(metrics, indent=2))
     return int(
@@ -351,10 +395,14 @@ def main(argv: list[str] | None = None) -> int:
         "run-episodes", help="Run episodes and write traces and metrics"
     )
     run.add_argument(
-        "--episodes", required=True, help="JSON episode path or quoted glob"
+        "--episodes",
+        required=True,
+        help="Episode JSON/glob or built split directory/episodes.jsonl",
     )
     run.add_argument("--generator", choices=("stub", "hf"), required=True)
     run.add_argument("--stub-script")
+    run.add_argument("--limit", type=int, help="Total episodes before sharding")
+    run.add_argument("--shard", help="One-based i/k; stable SHA256 partition by ID")
     run.add_argument("--batch-size", type=int, help="HF microbatch size")
     run.add_argument(
         "--model", help="Model key from configs/models.yaml (HF generator)"
@@ -365,7 +413,9 @@ def main(argv: list[str] | None = None) -> int:
         default=str(Path(__file__).resolve().parents[1] / "configs/arms.yaml"),
     )
     run.add_argument(
-        "--split", choices=("examples", "train", "dev", "test"), required=True
+        "--split",
+        choices=("examples", "train", "dev", "test", "test_cueflip"),
+        required=True,
     )
     run.add_argument(
         "--config",

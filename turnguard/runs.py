@@ -6,7 +6,8 @@ import logging
 import platform
 import re
 import subprocess
-from datetime import datetime
+import time
+from datetime import UTC, datetime
 from importlib import metadata
 from pathlib import Path
 
@@ -129,3 +130,31 @@ def new_run_dir(
         json.dump(environment, stream, indent=2)
         stream.write("\n")
     return run_dir
+
+
+class RunTimer:
+    """Wall timestamps for provenance; monotonic durations survive clock changes."""
+
+    def __init__(self) -> None:
+        self.started_at = datetime.now(UTC).isoformat()
+        self.started = time.perf_counter()
+        self.generation_started: float | None = None
+        self.generation_seconds: float | None = None
+
+    def start_generation(self) -> None:
+        self.generation_started = time.perf_counter()
+
+    def finish_generation(self) -> None:
+        if self.generation_started is not None:
+            self.generation_seconds = time.perf_counter() - self.generation_started
+
+    def finish(self, run_dir: Path) -> None:
+        path = run_dir / "env.json"
+        environment = json.loads(path.read_text("utf-8"))
+        environment.update(
+            started_at=self.started_at,
+            finished_at=datetime.now(UTC).isoformat(),
+            elapsed_seconds=time.perf_counter() - self.started,
+            generation_seconds=self.generation_seconds,
+        )
+        path.write_text(json.dumps(environment, indent=2) + "\n", encoding="utf-8")

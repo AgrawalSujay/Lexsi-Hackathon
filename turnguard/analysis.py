@@ -96,6 +96,19 @@ def load_verified_run(
             if value["id"] in specs:
                 raise ValueError(f"Duplicate episode spec ID: {value['id']}")
             specs[value["id"]] = value
+    dataset = config.get("dataset")
+    if dataset is not None:
+        from turnguard.data.loaders import load_split, split_fingerprint
+
+        if len(paths) != 1 or paths[0].name != "episodes.jsonl":
+            raise ValueError("Built dataset requires its original split directory")
+        directory = paths[0].parent
+        actual = split_fingerprint(directory)
+        if actual["sha256"] != dataset["sha256"]:
+            raise ValueError(
+                "Dataset hash mismatch: release changed; refusing to rescore/compare"
+            )
+        load_split(dataset["split"], purpose="eval", directory=directory)
     # Hash before schema validation: a changed AND invalid spec must still yield
     # the explicit mismatch diagnosis, with no filesystem mutation.
     for record in records:
@@ -125,6 +138,8 @@ def load_verified_run(
     ):
         raise ValueError("A run must contain one arm, model and split")
     metadata = {"run_dir": str(run_dir), "spec_files": [str(path) for path in paths]}
+    if dataset is not None:
+        metadata["dataset_sha256"] = dataset["sha256"]
     return records, selected, metadata
 
 
@@ -152,6 +167,12 @@ def compare_runs(
     """Regrade both verified histories in memory; comparisons never mutate runs."""
     records_a, values_a, metadata_a = load_verified_run(run_a, specs_path=specs_a)
     records_b, values_b, metadata_b = load_verified_run(run_b, specs_path=specs_b)
+    if (
+        metadata_a.get("dataset_sha256") is not None
+        and metadata_b.get("dataset_sha256") is not None
+        and metadata_a["dataset_sha256"] != metadata_b["dataset_sha256"]
+    ):
+        raise ValueError("Dataset hash mismatch between runs")
     specs = {spec["id"]: spec for spec in values_a}
     for spec in values_b:
         if spec["id"] in specs and spec_sha256(specs[spec["id"]]) != spec_sha256(spec):

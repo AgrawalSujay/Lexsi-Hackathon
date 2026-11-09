@@ -82,9 +82,9 @@ def _validate_release(directory: Path) -> None:
     summary = json.loads((directory / "summary.json").read_text("utf-8"))
     if summary.get("status") != "complete" or summary.get("teacher") == "stub":
         raise ValueError("Cannot freeze a stopped or stub build")
-    from turnguard.data.loaders import load_split
+    from turnguard.data.loaders import _load_release
 
-    load_split(directory.name, purpose="eval", root=directory.parents[2])
+    _load_release(directory.name, directory)
     _files(directory)
 
 
