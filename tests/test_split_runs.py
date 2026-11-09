@@ -263,3 +263,29 @@ def test_language_summary_prints_counts_without_outputs(
     ):
         assert text in output
     assert "FINAL:" not in output
+
+
+def test_limit_is_mixed_and_shards_keep_twins_together():
+    from types import SimpleNamespace
+
+    from turnguard.data.loaders import select_episodes
+
+    specs = []
+    for i in range(40):
+        specs.append(SimpleNamespace(id=f"dev-a-auth-{i}", twin_of=None))
+        specs.append(SimpleNamespace(id=f"dev-z-inj-{i}", twin_of=None))
+        specs.append(
+            SimpleNamespace(id=f"dev-z-inj-{i}-clean", twin_of=f"dev-z-inj-{i}")
+        )
+    picked = select_episodes(specs, limit=30)
+    assert len(picked) <= 30
+    assert any("auth" in s.id for s in picked) and any("inj" in s.id for s in picked)
+    for part in [select_episodes(specs, shard=f"{i}/3") for i in (1, 2, 3)] + [picked]:
+        ids = {s.id for s in part}
+        for s in part:
+            if s.twin_of:
+                assert s.twin_of in ids
+            elif f"{s.id}-clean" in {x.id for x in specs}:
+                assert f"{s.id}-clean" in ids
+    union = [s.id for i in (1, 2, 3) for s in select_episodes(specs, shard=f"{i}/3")]
+    assert sorted(union) == sorted(s.id for s in specs)

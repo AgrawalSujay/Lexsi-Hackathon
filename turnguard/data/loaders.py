@@ -92,20 +92,45 @@ def parse_shard(shard: str | None) -> tuple[int, int]:
     return index, count
 
 
+def _group_key(spec: EpisodeSpec) -> str:
+    """A clean twin always travels with its injected base."""
+    return spec.twin_of or spec.id
+
+
+def _rank(key: str) -> int:
+    return int(hashlib.sha256(key.encode()).hexdigest(), 16)
+
+
 def select_episodes(
     specs: list[EpisodeSpec], *, limit: int | None = None, shard: str | None = None
 ) -> list[EpisodeSpec]:
-    """Apply the total limit before partitioning, so equal limits cover one set."""
+    """Stable pseudo-random selection over twin groups.
+
+    Groups are ordered by SHA256 of the base ID, so a --limit run is a mixed
+    sample of every episode type (sorted IDs would take only 'auth' episodes
+    first), and an injected episode and its clean twin are never separated by
+    a limit or a shard. The limit counts episodes; a group that would exceed it
+    is skipped so the total never goes over.
+    """
     if limit is not None and limit < 1:
         raise ValueError("--limit must be positive")
     index, count = parse_shard(shard)
     if limit is None and shard is None:
         return specs
-    selected = sorted(specs, key=lambda spec: spec.id)
+    groups: dict[str, list[EpisodeSpec]] = {}
+    for spec in specs:
+        groups.setdefault(_group_key(spec), []).append(spec)
+    ordered = sorted(groups, key=lambda key: (_rank(key), key))
     if limit is not None:
-        selected = selected[:limit]
+        chosen, total = [], 0
+        for key in ordered:
+            if total + len(groups[key]) <= limit:
+                chosen.append(key)
+                total += len(groups[key])
+        ordered = chosen
     return [
         spec
-        for spec in selected
-        if int(hashlib.sha256(spec.id.encode()).hexdigest(), 16) % count == index - 1
+        for key in ordered
+        if _rank(key) % count == index - 1
+        for spec in sorted(groups[key], key=lambda spec: spec.id)
     ]
