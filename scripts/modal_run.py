@@ -247,9 +247,14 @@ def _print_split_metrics(runs: Path) -> None:
         ]:
             rates = []
             for name in (
+                "asr",
+                "asr_relayed",
                 "asr_incl_relay",
                 "clean_task_success",
+                "clean_answer_correct",
                 "authorized_follow_rate",
+                "authorized_followed",
+                "authorized_followed_given_exposed",
             ):
                 value = summary[name]
                 rates.append(

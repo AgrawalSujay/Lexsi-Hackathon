@@ -170,10 +170,14 @@ def _run(args: argparse.Namespace) -> int:
         )
     for name in (
         "asr",
+        "asr_relayed",
         "asr_incl_relay",
         "utility_under_attack",
         "clean_task_success",
+        "clean_answer_correct",
         "authorized_follow_rate",
+        "authorized_followed",
+        "authorized_followed_given_exposed",
         "malformed_rate",
     ):
         value = metrics[name]
@@ -186,6 +190,7 @@ def _run(args: argparse.Namespace) -> int:
             )
         )
         print(f"{name}: {value['k']}/{value['n']} = {estimate}")
+    print("by_scenario: " + json.dumps(metrics["by_scenario"], ensure_ascii=False))
     print("by_language: " + json.dumps(metrics["by_language"], ensure_ascii=False))
     print("first_violation_step: " + json.dumps(metrics["first_violation_step"]))
     print(
