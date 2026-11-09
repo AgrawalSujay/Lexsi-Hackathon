@@ -538,9 +538,49 @@ def main(argv: list[str] | None = None) -> int:
     drop.add_argument("--item-key", help="Cross-check item key for plain IDs")
     freeze = commands.add_parser("freeze", help="Freeze the complete test release")
     freeze.add_argument("--split", choices=("test",), required=True)
-    for name in ("train", "eval-external", "report"):
+    pairs = commands.add_parser(
+        "build-pairs", help="Verified on-policy preference pairs"
+    )
+    pairs.add_argument("--run", type=Path, nargs="+", action="extend", required=True)
+    pairs.add_argument("--split", choices=("train", "dev"))
+    pairs.add_argument(
+        "--validate-only",
+        action="store_true",
+        help="Dev validation; never for training",
+    )
+    pairs.add_argument(
+        "--specs", help="Original source split directory after relocating shard runs"
+    )
+    pairs.add_argument("--scenario-cap", type=int, default=200)
+    train = commands.add_parser("train", help="not implemented yet")
+    train.add_argument("--pairs", type=Path)
+    train.add_argument("--arm", default="A4")
+    train.add_argument("--model", choices=("dev", "headline"), default="headline")
+    for name in ("eval-external", "report"):
         commands.add_parser(name, help="not implemented yet")
     args = parser.parse_args(argv)
+    if args.command == "build-pairs":
+        from turnguard.data.pairs import build_pairs
+
+        try:
+            report = build_pairs(
+                args.run,
+                split=args.split or ("dev" if args.validate_only else "train"),
+                validate_only=args.validate_only,
+                specs_path=args.specs,
+                scenario_cap=args.scenario_cap,
+            )
+        except (ValueError, OSError, KeyError, yaml.YAMLError) as error:
+            parser.error(str(error))
+        print(json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False))
+        return 0
+    if args.command == "train" and args.pairs is not None:
+        from turnguard.data.pairs import load_training_pairs
+
+        try:
+            load_training_pairs(args.pairs)
+        except (ValueError, OSError, KeyError) as error:
+            parser.error(str(error))
     if args.command in ("crosscheck", "drop-episodes"):
         try:
             if args.command == "crosscheck":

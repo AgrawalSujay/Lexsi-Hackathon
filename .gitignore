@@ -34,3 +34,6 @@ prompts/
 
 # Independent judge outputs and its separate immutable response cache.
 /data/crosscheck/
+
+# Generated preference pairs and quarantined validation artifacts.
+/data/pairs/
