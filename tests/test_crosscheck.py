@@ -297,7 +297,6 @@ def test_wrong_model_is_refused_without_retry(tmp_path, model):
     "text",
     [
         "not json",
-        '```json\n{"faithful":true,"issue":""}\n```',
         '{"faithful":"true","issue":""}',
         '{"faithful": true}',
         '{"faithful":false,"issue":3}',
@@ -471,3 +470,12 @@ def test_judge_concurrency_is_at_most_four(tmp_path, monkeypatch):
     result = crosscheck(root=tmp_path, n=12, transport=transport, limiter=limiter())
     assert result["overall"]["faithful"]["k"] == 12
     assert 1 < peak <= 4
+
+
+def test_fenced_json_is_accepted_but_prose_is_not():
+    from turnguard.data.crosscheck import _unfence
+
+    assert _unfence('```json\n{"faithful": true, "issue": ""}\n```') == (
+        '{"faithful": true, "issue": ""}'
+    )
+    assert _unfence('Note: {"faithful": true}') == 'Note: {"faithful": true}'

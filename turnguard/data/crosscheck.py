@@ -325,6 +325,12 @@ def _check_model(answered: str, requested: str) -> None:
         )
 
 
+def _unfence(text: str) -> str:
+    """GLM sometimes wraps its JSON in a ```json fence; nothing else is tolerated."""
+    match = re.fullmatch(r"\s*```(?:json)?\s*(.*?)\s*```\s*", text, re.S)
+    return match.group(1) if match else text
+
+
 def _strict_object(pairs: list[tuple[str, object]]) -> dict:
     result = {}
     for key, value in pairs:
@@ -412,7 +418,7 @@ class GLMJudge:
                     raise ValueError(
                         "GLM returned empty content after 8000-token retry"
                     )
-                parsed = json.loads(text, object_pairs_hook=_strict_object)
+                parsed = json.loads(_unfence(text), object_pairs_hook=_strict_object)
                 if (
                     not isinstance(parsed, dict)
                     or set(parsed) != {"faithful", "issue"}
