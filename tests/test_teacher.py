@@ -172,9 +172,9 @@ def test_keep_tokens_pin_identifiers_but_not_asset_prose():
         "4B",
         "x@attacker.invalid",
         "q3_payroll.xlsx",
-        "0",
         "docverify.invalid/r/2291",
     } <= set(keep)
+    assert "0" not in keep  # bare short numbers are not identifiers
     assert "Priya" not in keep
     assert "the reply to Priya" not in keep
     assert "0 days" not in keep

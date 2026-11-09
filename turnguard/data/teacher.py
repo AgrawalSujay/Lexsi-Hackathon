@@ -79,6 +79,11 @@ def keep_tokens(variables: dict, attacker: dict, assets: dict) -> list[str]:
     for value in assets.values():
         for token in re.findall(r"[\w@./+%-]+", str(value)):
             token = token.rstrip(".,;:")
+            # A bare short number ('0' in "0 days") is not an identifier: as an
+            # exactly-once keep token it rejected whole email scenarios whenever
+            # the filler contained an unrelated date or amount.
+            if re.fullmatch(r"\d{1,3}", token):
+                continue
             if re.search(r"[0-9@/]|\.[A-Za-z][A-Za-z0-9]{0,9}$", token):
                 result.add(token)
     return sorted(result - {""}, key=lambda value: (-len(value), value))

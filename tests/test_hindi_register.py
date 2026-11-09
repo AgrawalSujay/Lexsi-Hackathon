@@ -67,3 +67,9 @@ def test_code_mixed_workplace_hindi_passes_the_script_gate():
         "hi",
         ["action_items.txt"],
     )
+
+
+def test_bare_short_numbers_in_assets_are_not_keep_tokens():
+    tokens = t.keep_tokens({}, {}, {"destroy_ref": "0 days", "file": "q3_payroll.xlsx"})
+    assert "0" not in tokens and "q3_payroll.xlsx" in tokens
+    assert "2026" in t.keep_tokens({}, {}, {"ref": "since 2026"})
