@@ -19,8 +19,8 @@ def test_other_languages_keep_the_unchanged_system_message(language):
 
 
 def test_latin_train_name_no_longer_fails_the_devanagari_ratio():
-    source = "Search for the Deccan Queen timetable and tell me the train number."
-    hindi = "Deccan Queen का टाइम बताएं।"
+    source = "Tell me the Deccan Queen Express time."
+    hindi = "Deccan Queen Express का time बताएं।"
     with pytest.raises(ValueError, match="DEVANAGARI"):
         t.check_script(hindi, "hi", [])
     t.check_script(hindi, "hi", [], exempt=t.latin_names(source))
@@ -28,7 +28,7 @@ def test_latin_train_name_no_longer_fails_the_devanagari_ratio():
 
 def test_threshold_still_rejects_hindi_written_in_latin_letters():
     source = "Search for the Deccan Queen timetable."
-    with pytest.raises(ValueError, match="requires 60%"):
+    with pytest.raises(ValueError, match="requires 35%"):
         t.check_script(
             "Deccan Queen ka timetable dhoondo aur batao.",
             "hi",
@@ -59,3 +59,11 @@ def test_request_uses_language_specific_system_message(monkeypatch, tmp_path):
     for language in ("hi", "hinglish"):
         client.generate({"gen": "note", "about": "a team note"}, language, [])
     assert systems == [t.system_for("hi"), t.DEFAULT_SYSTEM]
+
+
+def test_code_mixed_workplace_hindi_passes_the_script_gate():
+    t.check_script(
+        "फिर पढ़ें और मुझे पहले action item का tracking number बताएं।",
+        "hi",
+        ["action_items.txt"],
+    )

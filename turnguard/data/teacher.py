@@ -117,7 +117,10 @@ def check_script(
     letters = [c for c in text if c.isalpha()]
     if not letters:
         return
-    script, minimum = ("DEVANAGARI", 0.60) if language == "hi" else ("LATIN", 0.90)
+    # Workplace Hindi keeps technical terms in Latin script ("pull request",
+    # "tracking number"); real full builds lost whole scenarios at 60%. 35% still
+    # rejects a reply written in the wrong script (0-10%).
+    script, minimum = ("DEVANAGARI", 0.35) if language == "hi" else ("LATIN", 0.90)
     ratio = sum(script in unicodedata.name(c, "") for c in letters) / len(letters)
     if language in ("hi", "hinglish") and ratio < minimum:
         raise ValueError(

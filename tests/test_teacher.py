@@ -572,7 +572,8 @@ def test_empty_reply_is_refused_and_not_cached(teacher, transport, monkeypatch):
     "language,text,valid",
     [
         ("hi", "कखगab", True),
-        ("hi", "कखab", False),
+        ("hi", "कखabc", True),  # 40%: code-mixed workplace Hindi
+        ("hi", "कabc", False),  # 25%: mostly Latin
         ("hinglish", "abcdefghiα", True),
         ("hinglish", "abcdefghαβ", False),
         ("hinglish", "abc क", False),
