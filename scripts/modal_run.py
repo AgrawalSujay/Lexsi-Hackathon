@@ -39,7 +39,7 @@ import modal
 ROOT = Path(__file__).resolve().parents[1]
 GPU_CHOICES = ("L40S", "A100-80GB", "H100")
 TASKS = ("smoke", "examples", "probe", "all", "split")
-SPLITS = ("dev", "test", "test_cueflip")
+SPLITS = ("train", "dev", "test", "test_cueflip")
 
 
 def _packages() -> list[str]:
