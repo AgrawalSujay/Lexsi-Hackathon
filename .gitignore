@@ -31,3 +31,6 @@ htmlcov/
 # Local working notes (not part of the project repo)
 AGENTS.md
 prompts/
+
+# Independent judge outputs and its separate immutable response cache.
+/data/crosscheck/

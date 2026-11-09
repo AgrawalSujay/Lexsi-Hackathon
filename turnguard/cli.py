@@ -508,11 +508,48 @@ def main(argv: list[str] | None = None) -> int:
     audit.add_argument(
         "--build-dir", type=Path, help="Directory containing episodes.jsonl"
     )
+    crosscheck = commands.add_parser(
+        "crosscheck", help="Independent GLM translation review"
+    )
+    crosscheck.add_argument("--split", choices=("test",), required=True)
+    crosscheck.add_argument("--n", type=int, default=150)
+    crosscheck.add_argument("--dry-run", action="store_true")
+    drop = commands.add_parser(
+        "drop-episodes", help="Remove confirmed bad episodes and twins"
+    )
+    drop.add_argument("--split", choices=("test", "test_cueflip"), required=True)
+    drop.add_argument("--ids-file", type=Path, required=True)
+    drop.add_argument(
+        "--reason", help="Reason for plain IDs without disagreement records"
+    )
+    drop.add_argument("--item-key", help="Cross-check item key for plain IDs")
     freeze = commands.add_parser("freeze", help="Freeze the complete test release")
     freeze.add_argument("--split", choices=("test",), required=True)
     for name in ("train", "eval-external", "report"):
         commands.add_parser(name, help="not implemented yet")
     args = parser.parse_args(argv)
+    if args.command in ("crosscheck", "drop-episodes"):
+        try:
+            if args.command == "crosscheck":
+                from turnguard.data.crosscheck import crosscheck
+
+                report = crosscheck(n=args.n, dry_run=args.dry_run)
+            else:
+                from turnguard.data.drop_episodes import drop_episodes
+
+                report = drop_episodes(
+                    args.split,
+                    args.ids_file,
+                    reason=args.reason,
+                    item_key=args.item_key,
+                )
+        except (ValueError, OSError, KeyError, ImportError) as error:
+            parser.error(str(error))
+        print(json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False))
+        return int(
+            args.command == "crosscheck"
+            and report.get("overall", {}).get("errors", 0) > 0
+        )
     if args.command in ("compare", "rescore"):
         from turnguard.analysis import compare_runs, rescore_run
 
