@@ -342,7 +342,8 @@ def test_dry_run_lists_sample_and_makes_no_writes_or_calls(
         transport=lambda *_: pytest.fail("network"),
     )
     assert result["estimate"]["first_attempt_calls"] == 5
-    assert len(result["sample"]) == 5
+    assert len(result["census"]) == 5
+    assert result["selection"] == "census"
     assert result["estimate"]["output_token_budget"] == 20000
     assert snapshot(translation_build) == before
 

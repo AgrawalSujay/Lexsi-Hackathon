@@ -511,13 +511,21 @@ def main(argv: list[str] | None = None) -> int:
     crosscheck = commands.add_parser(
         "crosscheck", help="Independent GLM translation review"
     )
-    crosscheck.add_argument("--split", choices=("test",), required=True)
+    crosscheck.add_argument("--split", choices=("dev", "train", "test"), required=True)
+    crosscheck.add_argument(
+        "--filler", action="store_true", help="Audit generated filler"
+    )
+    crosscheck.add_argument(
+        "--root", type=Path, help="Read-only build/cache root; requires --dry-run"
+    )
     crosscheck.add_argument("--n", type=int, default=150)
     crosscheck.add_argument("--dry-run", action="store_true")
     drop = commands.add_parser(
         "drop-episodes", help="Remove confirmed bad episodes and twins"
     )
-    drop.add_argument("--split", choices=("test", "test_cueflip"), required=True)
+    drop.add_argument(
+        "--split", choices=("dev", "train", "test", "test_cueflip"), required=True
+    )
     drop.add_argument("--ids-file", type=Path, required=True)
     drop.add_argument(
         "--reason", help="Reason for plain IDs without disagreement records"
@@ -533,7 +541,17 @@ def main(argv: list[str] | None = None) -> int:
             if args.command == "crosscheck":
                 from turnguard.data.crosscheck import crosscheck
 
-                report = crosscheck(n=args.n, dry_run=args.dry_run)
+                if args.root is not None and not args.dry_run:
+                    raise ValueError("--root is read-only and requires --dry-run")
+                kwargs = {
+                    "n": args.n,
+                    "dry_run": args.dry_run,
+                    "split": args.split,
+                    "filler": args.filler,
+                }
+                if args.root is not None:
+                    kwargs["root"] = args.root
+                report = crosscheck(**kwargs)
             else:
                 from turnguard.data.drop_episodes import drop_episodes
 

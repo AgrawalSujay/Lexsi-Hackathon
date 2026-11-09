@@ -1,4 +1,4 @@
-"""Audited, twin-closed removal of confirmed bad translations before freezing."""
+"""Audited, twin-closed removal of confirmed cross-check failures."""
 
 import hashlib
 import json
@@ -48,10 +48,15 @@ def _read_requests(
             except json.JSONDecodeError:
                 rows.append(line.strip())
     lookup = {}
-    disagreements = root / "data/crosscheck/test/disagreements.jsonl"
-    if disagreements.exists():
+    audit_split = "test" if split == "test_cueflip" else split
+    for filename in ("disagreements.jsonl", "filler_disagreements.jsonl"):
+        disagreements = root / "data/crosscheck" / audit_split / filename
+        if not disagreements.exists():
+            continue
         for item in read_jsonl(disagreements):
-            field = "episode_ids" if split == "test" else "test_cueflip_episode_ids"
+            field = (
+                "test_cueflip_episode_ids" if split == "test_cueflip" else "episode_ids"
+            )
             for episode_id in item.get(field, []):
                 lookup.setdefault(episode_id, []).append(item)
     requests = []
@@ -60,7 +65,7 @@ def _read_requests(
             row = {"episode_id": row}
         if not isinstance(row, dict):
             raise ValueError("IDs must be strings or removal JSON objects")
-        field = "episode_ids" if split == "test" else "test_cueflip_episode_ids"
+        field = "test_cueflip_episode_ids" if split == "test_cueflip" else "episode_ids"
         ids = row.get(field, [row.get("episode_id", row.get("id"))])
         if not isinstance(ids, list) or not ids:
             raise ValueError(f"Removal object must contain {field} or episode_id")
@@ -180,6 +185,24 @@ def _checksums(directory: Path, *, uppercase: bool) -> None:
         )
 
 
+def _validate_editable_release(directory: Path) -> None:
+    if (directory / "FROZEN").exists():
+        raise ValueError(f"Cannot drop episodes from frozen split {directory.name}")
+    if directory.name in ("test", "test_cueflip"):
+        _validate_release(directory)
+    else:
+        for name in (
+            "episodes.jsonl",
+            "summary.json",
+            "manifest.json",
+            "lexsi_provenance.json",
+            "dataset_card.md",
+        ):
+            if not (directory / name).is_file():
+                raise ValueError(f"Incomplete release: missing {name}")
+        _load_release(directory.name, directory)
+
+
 def drop_episodes(
     split: str,
     ids_file: Path,
@@ -195,14 +218,14 @@ def drop_episodes(
     reviewed disagreements, or explicit CLI defaults. This is never an automatic
     reaction to the judge: the operator chooses the confirmed removals.
     """
-    if split not in ("test", "test_cueflip"):
-        raise ValueError("drop-episodes supports test or test_cueflip only")
+    if split not in ("dev", "train", "test", "test_cueflip"):
+        raise ValueError("drop-episodes supports dev, train, test or test_cueflip")
     root = Path(root) if root is not None else Path(__file__).resolve().parents[2]
     directory = root / "data/v1" / split
     if (directory / "FROZEN").exists():
         raise ValueError(f"Cannot drop episodes from frozen split {split}")
     before = _snapshot(directory)
-    _validate_release(directory)
+    _validate_editable_release(directory)
     episodes = [spec.to_dict() for spec in _load_release(split, directory)]
     by_id = {episode["id"]: episode for episode in episodes}
     requests = _read_requests(Path(ids_file), split, root, reason, item_key)
@@ -278,7 +301,7 @@ def drop_episodes(
         summary["cue_audit"] = write_cue_audit(kept, stage, limited=limited)
         _write_json(stage / "summary.json", summary)
         event = {
-            "operation": "confirmed_translation_drop",
+            "operation": "confirmed_crosscheck_drop",
             "removed_at": now,
             "removed": len(trail),
             "episode_ids": sorted(reasons),
@@ -295,7 +318,7 @@ def drop_episodes(
         )
         # Earlier pipeline stages describe the original generation/gates; retain
         # those historical facts and explicitly add the post-build removal stage.
-        manifest.setdefault("stage_counts", {})["ConfirmedTranslationDrop"] = {
+        manifest.setdefault("stage_counts", {})["ConfirmedCrosscheckDrop"] = {
             "input_count": len(episodes),
             "output_count": len(kept),
             "removed_count": len(trail),
@@ -310,12 +333,12 @@ def drop_episodes(
         _write_json(stage / "lexsi_provenance.json", provenance)
         with (stage / "dataset_card.md").open("a", encoding="utf-8") as stream:
             stream.write(
-                f"\nConfirmed translation removals ({now}): {len(trail)} episodes. "
+                f"\nConfirmed cross-check removals ({now}): {len(trail)} episodes. "
                 f"Current counts: {json.dumps(summary['counts'])}. "
                 "Reasons and cross-check keys are in dropped.jsonl.\n"
             )
         _checksums(stage, uppercase="CHECKSUMS.sha256" in before)
-        _validate_release(stage)
+        _validate_editable_release(stage)
         after = _snapshot(stage)
         if _snapshot(directory) != before or (directory / "FROZEN").exists():
             raise ValueError("Split changed or froze during removal; no edits applied")
