@@ -325,6 +325,7 @@ def main(
     gpu: str = "L40S",
     split: str = "dev",
     shard: str | None = None,
+    background: bool = False,
 ) -> None:
     if task not in TASKS:
         raise SystemExit(f"--task must be one of {', '.join(TASKS)}")
@@ -346,6 +347,16 @@ def main(
     if info["working_tree_had_uncommitted_changes"]:
         print("warning: uncommitted changes exist and are NOT sent to Modal")
     print(f"Running {task} on {gpu} with {model} at commit {info['git_commit'][:7]}")
+    if background:
+        # With `modal run --detach`, spawn() lets this terminal exit at once
+        # (Ctrl+C or a closed laptop can no longer cancel the GPU job). Results
+        # are copied to the volume's runs/ when the container finishes.
+        call = run_task.with_options(gpu=gpu).spawn(
+            task, model, source, info, split_payload, split_info, shard, batch_size
+        )
+        print(f"Started in the background: {call.object_id}")
+        print("Fetch when done: modal volume ls turnguard-hf-cache runs")
+        return
     result = run_task.with_options(gpu=gpu).remote(
         task, model, source, info, split_payload, split_info, shard, batch_size
     )
