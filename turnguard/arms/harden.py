@@ -148,7 +148,9 @@ def _gpu_trainer(config: dict, train: list, held: list, run: Path):
     args = config_class(
         output_dir=str(run),
         learning_rate=config["learning_rate"],
-        warmup_ratio=config["warmup_ratio"],
+        # transformers 5 removed warmup_ratio; a float in [0, 1) warmup_steps is
+        # the same ratio of total training steps.
+        warmup_steps=float(config["warmup_ratio"]),
         beta=config["beta"],
         num_train_epochs=config["epochs"],
         max_length=config["max_length"],
