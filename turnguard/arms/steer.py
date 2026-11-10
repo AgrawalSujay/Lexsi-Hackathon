@@ -74,9 +74,13 @@ def window_ids(
     tokenizer: Any, row: dict, count: int = COMPLETION_TOKENS
 ) -> tuple[list[int], list[int], list[int]]:
     """Use an equal completion prefix length on both sides of each contrast."""
-    prompt = tokenizer.apply_chat_template(
-        row["prompt"], tokenize=True, add_generation_prompt=True
+    # Render then tokenize exactly as HFGenerator does at inference time. (In
+    # transformers 5, apply_chat_template(tokenize=True) returns a BatchEncoding,
+    # not a list of ids.)
+    text = tokenizer.apply_chat_template(
+        row["prompt"], tokenize=False, add_generation_prompt=True
     )
+    prompt = list(tokenizer(text, add_special_tokens=False)["input_ids"])
     chosen = tokenizer(row["chosen"], add_special_tokens=False)["input_ids"]
     rejected = tokenizer(row["rejected"], add_special_tokens=False)["input_ids"]
     n = min(count, len(chosen), len(rejected))

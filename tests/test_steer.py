@@ -124,11 +124,14 @@ class Model:
 
 class Tokenizer:
     def apply_chat_template(self, messages, **kwargs):
-        assert kwargs == {"tokenize": True, "add_generation_prompt": True}
-        return [10, 20]
+        # Rendered text, then tokenized exactly as HFGenerator does.
+        assert kwargs == {"tokenize": False, "add_generation_prompt": True}
+        return "<rendered prompt>"
 
     def __call__(self, text, **kwargs):
         assert kwargs == {"add_special_tokens": False}
+        if text == "<rendered prompt>":
+            return {"input_ids": [10, 20]}
         return {"input_ids": [3, 5] if text == "FINAL: yes" else [1, 1]}
 
 
@@ -220,6 +223,8 @@ def test_chosen_minus_rejected_window_math_and_normalization(fake_gpu, pair_sour
 def test_completion_window_is_equal_length_and_at_most_eight():
     class Tok(Tokenizer):
         def __call__(self, text, **kwargs):
+            if text == "<rendered prompt>":
+                return {"input_ids": [10, 20]}
             return {"input_ids": list(range(12 if text == "chosen" else 3))}
 
     assert steer.window_ids(
