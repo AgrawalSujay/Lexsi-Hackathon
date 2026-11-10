@@ -146,7 +146,9 @@ def _gpu_trainer(config: dict, train: list, held: list, run: Path):
         bias="none",
     )
     args = config_class(
-        output_dir=str(run),
+        # Checkpoints go to a persistent directory when one is given (the Modal
+        # volume), so a stopped job can resume instead of starting over.
+        output_dir=config.get("checkpoint_dir") or str(run),
         learning_rate=config["learning_rate"],
         # transformers 5 removed warmup_ratio; a float in [0, 1) warmup_steps is
         # the same ratio of total training steps.
@@ -163,7 +165,8 @@ def _gpu_trainer(config: dict, train: list, held: list, run: Path):
         gradient_accumulation_steps=config["gradient_accumulation_steps"],
         max_steps=10 if config["smoke"] else -1,
         eval_strategy="epoch",
-        save_strategy="epoch",
+        save_strategy="steps",
+        save_steps=config.get("save_steps", 20),
         save_total_limit=2,
         logging_steps=1,
         report_to="none",
@@ -228,6 +231,25 @@ def _gpu_trainer(config: dict, train: list, held: list, run: Path):
     return trainer, api
 
 
+def latest_checkpoint(directory: str | Path | None) -> Path | None:
+    """Newest *complete* ``checkpoint-N`` directory, or None.
+
+    Trainer writes trainer_state.json after the model, optimizer and scheduler,
+    so a checkpoint interrupted mid-save (or caught by a volume snapshot) lacks
+    it and is ignored.
+    """
+    if not directory or not Path(directory).is_dir():
+        return None
+    complete = [
+        path
+        for path in Path(directory).glob("checkpoint-*")
+        if path.name.split("-")[-1].isdigit()
+        and (path / "trainer_state.json").is_file()
+        and any(path.glob("adapter_model.*"))
+    ]
+    return max(complete, key=lambda path: int(path.name.split("-")[-1]), default=None)
+
+
 def train_a4(
     pairs: str | Path,
     *,
@@ -238,8 +260,13 @@ def train_a4(
     output: str | Path | None = None,
     root: Path | None = None,
     trainer_factory=None,
+    checkpoint_dir: str | Path | None = None,
 ) -> dict:
-    """Preflight data on CPU; construct/train a GPU trainer only when requested."""
+    """Preflight data on CPU; construct/train a GPU trainer only when requested.
+
+    With ``checkpoint_dir``, checkpoints are written there every ``save_steps``
+    optimizer steps and training resumes from the newest complete one.
+    """
     if arm != "A4":
         raise ValueError("Only A4 preference training is implemented")
     rows = load_training_pairs(pairs)  # Includes copied/renamed dev-data refusal.
@@ -273,6 +300,8 @@ def train_a4(
     }
     if smoke:
         config["gradient_accumulation_steps"] = 1
+    if checkpoint_dir is not None:
+        config["checkpoint_dir"] = str(Path(checkpoint_dir).resolve())
     counts = {
         "all": len(held),
         **{k: sum(chosen_kind(r) == k for r in held) for k in ("FINAL", "ACTION")},
@@ -308,7 +337,13 @@ def train_a4(
     trainer = None
     try:
         trainer, api = (trainer_factory or _gpu_trainer)(config, train, held, run)
-        trainer.train()
+        resume = latest_checkpoint(config.get("checkpoint_dir"))
+        report["resumed_from"] = str(resume) if resume else None
+        if resume:
+            logger.info("Resuming A4 training from %s", resume)
+            trainer.train(resume_from_checkpoint=str(resume))
+        else:
+            trainer.train()
         metrics = trainer.evaluate()
         # Named eval subsets make FINAL vs ACTION reward accuracy visible at
         # each epoch and in the final summary, independently of terse answers.

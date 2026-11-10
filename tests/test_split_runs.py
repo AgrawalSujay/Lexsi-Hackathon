@@ -377,6 +377,7 @@ def test_modal_train_persists_adapter_logs_and_upload_checksums(
     tmp_path, modal_runner, monkeypatch
 ):
     directory = training_pairs(tmp_path)
+    monkeypatch.setattr(modal_runner, "CHECKPOINT_ROOT", tmp_path / "checkpoints")
     payload, info = modal_runner._pairs_upload(directory)
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode="w"):
@@ -414,3 +415,10 @@ def test_modal_train_persists_adapter_logs_and_upload_checksums(
     assert json.loads((job / "PAIRS_UPLOAD.json").read_text()) == info
     with tarfile.open(fileobj=io.BytesIO(result["runs_tar"])) as archive:
         assert "adapters/A4/headline/adapter_model.safetensors" in archive.getnames()
+
+
+def test_train_a4_step_passes_persistent_checkpoint_dir(modal_runner):
+    ((name, command),) = modal_runner._steps(
+        "train-a4", "headline", checkpoint_dir="/cache/checkpoints/A4-x"
+    )
+    assert command[-2:] == ["--checkpoint-dir", "/cache/checkpoints/A4-x"]

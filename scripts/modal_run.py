@@ -33,12 +33,14 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import threading
 import tomllib
 from pathlib import Path
 
 import modal
 
 ROOT = Path(__file__).resolve().parents[1]
+CHECKPOINT_ROOT = Path("/cache/checkpoints")  # on the persistent volume
 GPU_CHOICES = ("L40S", "A100-80GB", "H100")
 TASKS = ("smoke", "examples", "probe", "all", "split", "train-a4")
 SPLITS = ("train", "dev", "test", "test_cueflip")
@@ -112,6 +114,7 @@ def _steps(
     shard: str | None = None,
     batch_size: int = 8,
     smoke: bool = False,
+    checkpoint_dir: str | None = None,
 ) -> list[tuple[str, list[str]]]:
     if task == "train-a4":
         command = [
@@ -128,6 +131,8 @@ def _steps(
         ]
         if smoke:
             command.append("--smoke")
+        if checkpoint_dir:
+            command += ["--checkpoint-dir", checkpoint_dir]
         return [("train-a4", command)]
     if task == "split":
         command = [
@@ -282,6 +287,30 @@ def _pairs_upload(directory: str | Path | None = None) -> tuple[bytes, dict]:
     return buffer.getvalue(), {"split": "train", "files": hashes}
 
 
+def _checkpoint_key(model: str, smoke: bool, payload: bytes, work: Path) -> str:
+    """Same pairs + same training settings + same model => same checkpoints.
+
+    A changed config or pair set gets a fresh directory instead of resuming an
+    incompatible run.
+    """
+    from turnguard.config import load_config
+
+    arms = work / "configs/arms.yaml"
+    settings = load_config(arms)["training"]["A4"] if arms.exists() else {}
+    digest = hashlib.sha256(payload)
+    digest.update(json.dumps(settings, sort_keys=True).encode())
+    return f"A4-{model}{'-smoke' if smoke else ''}-{digest.hexdigest()[:16]}"
+
+
+def _periodic_commit(stop: "threading.Event", every: int = 300) -> None:
+    """Snapshot the volume while training runs, so checkpoints survive a stop."""
+    while not stop.wait(every):
+        try:
+            cache.commit()
+        except Exception as error:  # a failed snapshot must not kill training
+            print(f"warning: volume commit failed: {error}", flush=True)
+
+
 def _unpack_pairs(payload: bytes, info: dict, work: Path) -> Path:
     from turnguard.data.pairs import load_training_pairs
 
@@ -368,10 +397,21 @@ def run_task(
         if split_info is None:
             raise ValueError("Split payload is required")
         _unpack_split(split_payload, split_info, work)
+    checkpoint_dir = None
+    committer = None
     if task == "train-a4":
         if split_info is None:
             raise ValueError("Pairs payload is required")
         _unpack_pairs(split_payload, split_info, work)
+        key = _checkpoint_key(model, smoke, split_payload, work)
+        checkpoint_dir = str(CHECKPOINT_ROOT / key)
+        Path(checkpoint_dir).mkdir(parents=True, exist_ok=True)
+        print(f"Checkpoints: {checkpoint_dir} (resumes automatically)", flush=True)
+        stop_commits = threading.Event()
+        committer = threading.Thread(
+            target=_periodic_commit, args=(stop_commits,), daemon=True
+        )
+        committer.start()
     results = {}
     try:
         for name, command in _steps(
@@ -381,6 +421,7 @@ def run_task(
             shard=shard,
             batch_size=batch_size,
             smoke=smoke,
+            checkpoint_dir=checkpoint_dir,
         ):
             print(f"\n===== {name} =====", flush=True)
             code = subprocess.run(command, cwd=work).returncode
@@ -389,6 +430,8 @@ def run_task(
                 print(f"!! step {name} failed with exit code {code}; stopping")
                 break
     finally:
+        if committer is not None:
+            stop_commits.set()
         runs = work / "runs"
         if runs.exists():
             # Also keep results on the Volume, in case the local client

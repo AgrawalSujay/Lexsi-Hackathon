@@ -357,3 +357,40 @@ def test_missing_reward_metrics_fail_instead_of_reporting_success(pair_root):
         )
     assert not (root / "adapters/A4/headline").exists()
     assert list((root / "runs").glob("*/error.json"))
+
+
+def test_latest_checkpoint_ignores_incomplete_saves(tmp_path):
+    for step, complete in ((20, True), (40, True), (60, False)):
+        path = tmp_path / f"checkpoint-{step}"
+        path.mkdir()
+        (path / "adapter_model.safetensors").write_text("w")
+        if complete:
+            (path / "trainer_state.json").write_text("{}")
+    assert harden.latest_checkpoint(tmp_path) == tmp_path / "checkpoint-40"
+    assert harden.latest_checkpoint(tmp_path / "missing") is None
+    assert harden.latest_checkpoint(None) is None
+
+
+def test_training_resumes_from_checkpoint_dir(pair_root, tmp_path):
+    root, path, _ = pair_root
+    checkpoints = tmp_path / "ckpt"
+    done = checkpoints / "checkpoint-20"
+    done.mkdir(parents=True)
+    (done / "adapter_model.safetensors").write_text("w")
+    (done / "trainer_state.json").write_text("{}")
+    seen = {}
+
+    class Resumable(FakeTrainer):
+        def train(self, resume_from_checkpoint=None):
+            seen["resume"] = resume_from_checkpoint
+
+    def factory(config, train, held, run):
+        seen["checkpoint_dir"] = config["checkpoint_dir"]
+        return Resumable(config, train, held, run), "fake.Trainer"
+
+    result = harden.train_a4(
+        path, root=root, trainer_factory=factory, checkpoint_dir=checkpoints
+    )
+    assert seen["checkpoint_dir"] == str(checkpoints.resolve())
+    assert seen["resume"] == str(done)
+    assert result["resumed_from"] == str(done)

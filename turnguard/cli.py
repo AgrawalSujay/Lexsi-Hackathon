@@ -559,6 +559,11 @@ def main(argv: list[str] | None = None) -> int:
     train.add_argument("--dry-run", action="store_true")
     train.add_argument("--output", type=Path)
     train.add_argument("--model", choices=("dev", "headline"), default="headline")
+    train.add_argument(
+        "--checkpoint-dir",
+        type=Path,
+        help="Persistent checkpoint directory; training resumes from it if present",
+    )
     for name in ("eval-external", "report"):
         commands.add_parser(name, help="not implemented yet")
     args = parser.parse_args(argv)
@@ -588,6 +593,7 @@ def main(argv: list[str] | None = None) -> int:
                 smoke=args.smoke,
                 dry_run=args.dry_run,
                 output=args.output,
+                checkpoint_dir=args.checkpoint_dir,
             )
         except (ValueError, OSError, KeyError, ImportError) as error:
             parser.error(str(error))
