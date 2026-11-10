@@ -115,6 +115,7 @@ def _steps(
     batch_size: int = 8,
     smoke: bool = False,
     checkpoint_dir: str | None = None,
+    arm: str = "A0",
 ) -> list[tuple[str, list[str]]]:
     if task == "train-a4":
         command = [
@@ -149,7 +150,7 @@ def _steps(
             "--batch-size",
             str(batch_size),
             "--arm",
-            "A0",
+            arm,
             "--split",
             split,
         ]
@@ -386,6 +387,8 @@ def run_task(
     shard: str | None = None,
     batch_size: int = 8,
     smoke: bool = False,
+    arm: str = "A0",
+    adapter_run: str | None = None,
 ) -> dict:
     work = Path(tempfile.mkdtemp(prefix="turnguard-"))
     work.mkdir(parents=True, exist_ok=True)
@@ -397,6 +400,14 @@ def run_task(
         if split_info is None:
             raise ValueError("Split payload is required")
         _unpack_split(split_payload, split_info, work)
+    if adapter_run:
+        # Trained adapters live beside their training run on the volume; the
+        # arm config refers to adapters/A4/<model> relative to the work dir.
+        source_adapters = Path("/cache/runs") / adapter_run / "adapters"
+        if not source_adapters.is_dir():
+            raise ValueError(f"No adapters in volume run {adapter_run}")
+        shutil.copytree(source_adapters, work / "adapters")
+        print(f"Adapter from runs/{adapter_run}", flush=True)
     checkpoint_dir = None
     committer = None
     if task == "train-a4":
@@ -422,6 +433,7 @@ def run_task(
             batch_size=batch_size,
             smoke=smoke,
             checkpoint_dir=checkpoint_dir,
+            arm=arm,
         ):
             print(f"\n===== {name} =====", flush=True)
             code = subprocess.run(command, cwd=work).returncode
@@ -469,9 +481,15 @@ def main(
     background: bool = False,
     pairs: str = "",
     smoke: bool = False,
+    arm: str = "A0",
+    adapter_run: str = "",
 ) -> None:
     if task not in TASKS:
         raise SystemExit(f"--task must be one of {', '.join(TASKS)}")
+    if arm != "A0" and task != "split":
+        raise SystemExit("--arm requires --task split")
+    if arm == "A4" and not adapter_run:
+        raise SystemExit("--arm A4 requires --adapter-run <volume run name>")
     if gpu not in GPU_CHOICES:
         raise SystemExit(f"--gpu must be one of {', '.join(GPU_CHOICES)}")
     if model not in ("headline", "dev"):
@@ -513,12 +531,24 @@ def main(
             shard,
             batch_size,
             smoke,
+            arm,
+            adapter_run or None,
         )
         print(f"Started in the background: {call.object_id}")
         print("Fetch when done: modal volume ls turnguard-hf-cache runs")
         return
     result = run_task.with_options(**remote_options).remote(
-        task, model, source, info, split_payload, split_info, shard, batch_size, smoke
+        task,
+        model,
+        source,
+        info,
+        split_payload,
+        split_info,
+        shard,
+        batch_size,
+        smoke,
+        arm,
+        adapter_run or None,
     )
     with tarfile.open(fileobj=io.BytesIO(result["runs_tar"])) as archive:
         names = sorted(

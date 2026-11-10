@@ -367,7 +367,7 @@ def test_modal_train_background_and_smoke_command(tmp_path, modal_runner, monkey
         smoke=True,
     )
     args = captured[0]
-    assert args[0] == "train-a4" and args[-1] is True
+    assert args[0] == "train-a4" and args[8] is True and args[-2:] == ("A0", None)
     assert args[5]["files"]["pairs.jsonl"]
     with pytest.raises(SystemExit, match="requires --gpu"):
         modal_runner.main(task="train-a4", gpu="L40S")
@@ -422,3 +422,8 @@ def test_train_a4_step_passes_persistent_checkpoint_dir(modal_runner):
         "train-a4", "headline", checkpoint_dir="/cache/checkpoints/A4-x"
     )
     assert command[-2:] == ["--checkpoint-dir", "/cache/checkpoints/A4-x"]
+
+
+def test_split_step_runs_the_requested_arm(modal_runner):
+    ((name, command),) = modal_runner._steps("split", "headline", split="dev", arm="A4")
+    assert command[command.index("--arm") + 1] == "A4"
