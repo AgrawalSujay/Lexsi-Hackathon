@@ -17,6 +17,32 @@ VERSION = "caa-v1"
 COMPLETION_TOKENS = 8
 
 
+def resolve_model_revision(generator, model_id: str) -> str | None:
+    """The exact Hub commit of the loaded weights.
+
+    transformers 5 no longer always sets ``config._commit_hash``; fall back to
+    the snapshot directory the weights were loaded from (HF cache layout
+    ``.../snapshots/<sha>/``), and only then to the Hub API.
+    """
+    revision = getattr(getattr(generator.model, "config", None), "_commit_hash", None)
+    if isinstance(revision, str) and revision:
+        return revision
+    try:
+        from huggingface_hub import try_to_load_from_cache
+
+        cached = try_to_load_from_cache(model_id, "config.json")
+        if isinstance(cached, str) and "/snapshots/" in cached:
+            return cached.split("/snapshots/")[1].split("/")[0]
+    except Exception:  # noqa: BLE001 - fall through to the Hub API
+        pass
+    try:
+        from huggingface_hub import HfApi
+
+        return HfApi().model_info(model_id).sha
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def decoder_layers(model: Any) -> Any:
     from safetune._refusal_helpers import _get_decoder_layers
 
@@ -198,8 +224,8 @@ def build_vectors(
     generator = generator or HFGenerator(model_id, seed=1234)
     if generator.name != model_id:
         raise ValueError("Extraction generator model does not match configuration")
-    revision = getattr(getattr(generator.model, "config", None), "_commit_hash", None)
-    if not isinstance(revision, str) or not revision:
+    revision = resolve_model_revision(generator, model_id)
+    if not revision:
         raise ValueError("A2 extraction requires a resolved model revision")
     started = time.perf_counter()
     vectors, stats = extract_vectors(generator, rows, layers)
@@ -275,7 +301,7 @@ def make_hook(
         raise ValueError("A2 requires train-only CAA provenance")
     if provenance["model_id"] != generator.name:
         raise ValueError("Steering vector model does not match generator")
-    revision = getattr(getattr(generator.model, "config", None), "_commit_hash", None)
+    revision = resolve_model_revision(generator, generator.name)
     if (
         provenance.get("model_revision") is not None
         and revision != provenance["model_revision"]

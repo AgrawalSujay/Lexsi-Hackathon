@@ -326,3 +326,23 @@ def test_runtime_refuses_model_revision_change(fake_gpu, pair_source):
     generator.model.config = types.SimpleNamespace(_commit_hash="another-revision")
     with pytest.raises(ValueError, match="model revision does not match"):
         steer.make_hook(generator=generator, vector=report["vector"], layer=0, alpha=4)
+
+
+def test_model_revision_falls_back_to_cached_snapshot(monkeypatch):
+    import types
+
+    import huggingface_hub
+
+    from turnguard.arms import steer
+
+    generator = types.SimpleNamespace(
+        model=types.SimpleNamespace(config=types.SimpleNamespace(_commit_hash=None))
+    )
+    monkeypatch.setattr(
+        huggingface_hub,
+        "try_to_load_from_cache",
+        lambda repo, name: f"/cache/hf/hub/models--x/snapshots/abc123/{name}",
+    )
+    assert steer.resolve_model_revision(generator, "x/y") == "abc123"
+    generator.model.config._commit_hash = "fromconfig"
+    assert steer.resolve_model_revision(generator, "x/y") == "fromconfig"
