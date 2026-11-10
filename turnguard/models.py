@@ -63,7 +63,10 @@ class HFGenerator:
         intervention: Callable[[], AbstractContextManager] | None = None,
         *,
         seed: int = 1234,
+        dtype: str | None = None,
     ) -> None:
+        if dtype not in (None, "fp16", "bf16", "fp32"):
+            raise ValueError("dtype must be fp16, bf16 or fp32")
         if type(batch_size) is not int or batch_size < 1:
             raise ValueError("batch_size must be a positive integer")
         if type(max_new_tokens) is not int or max_new_tokens < 1:
@@ -90,7 +93,14 @@ class HFGenerator:
                     "Tokenizer has neither a padding token nor an EOS token"
                 )
             self.tokenizer.pad_token = self.tokenizer.eos_token
-        self.model = load_model(model_id)
+        if dtype is None:
+            self.model = load_model(model_id)
+        else:
+            torch_dtype = getattr(
+                torch, {"fp16": "float16", "bf16": "bfloat16", "fp32": "float32"}[dtype]
+            )
+            self.model = load_model(model_id, dtype=torch_dtype)
+        self.dtype = dtype
         self.model.eval()
 
     def generate(self, batch: list[GenRequest]) -> list[str]:

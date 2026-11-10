@@ -555,6 +555,22 @@ def main(argv: list[str] | None = None) -> int:
         "--specs", help="Original source split directory after relocating shard runs"
     )
     pairs.add_argument("--scenario-cap", type=int, default=200)
+    side = commands.add_parser(
+        "eval-side", help="Generate side-eval responses without judging"
+    )
+    side.add_argument("--arm", default="A0", choices=("A0", "A1", "A2", "A4"))
+    side.add_argument("--model", default="dev", choices=("dev", "headline"))
+    side.add_argument("--dtype", default="fp16", choices=("fp16", "bf16", "fp32"))
+    side.add_argument("--out", type=Path)
+    side.add_argument("--config", type=Path)
+    side.add_argument("--arms-config", type=Path)
+    side.add_argument("--batch-size", type=int)
+    side.add_argument("--dry-run", action="store_true")
+    judging = commands.add_parser(
+        "judge-side", help="Local cached XSTest judge and offline MMLU scoring"
+    )
+    judging.add_argument("--run", type=Path, required=True)
+    judging.add_argument("--env-root", type=Path)
     vectors = commands.add_parser("steer-vectors", help="Train-only A2 CAA vectors")
     vectors.add_argument("--pairs", type=Path, required=True)
     vectors.add_argument("--model", choices=("dev", "headline"), default="headline")
@@ -589,6 +605,27 @@ def main(argv: list[str] | None = None) -> int:
     for name in ("eval-external", "report"):
         commands.add_parser(name, help="not implemented yet")
     args = parser.parse_args(argv)
+    if args.command in ("eval-side", "judge-side"):
+        from turnguard.evals.side import generate_side, judge_side
+
+        try:
+            if args.command == "eval-side":
+                report = generate_side(
+                    arm=args.arm,
+                    model=args.model,
+                    dtype=args.dtype,
+                    out=args.out,
+                    batch_size=args.batch_size,
+                    config_path=args.config,
+                    arms_path=args.arms_config,
+                    dry_run=args.dry_run,
+                )
+            else:
+                report = judge_side(args.run, root=args.env_root)
+        except (ValueError, OSError, KeyError, ImportError) as error:
+            parser.error(str(error))
+        print(json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False))
+        return 0
     if args.command == "steer-merge":
         from turnguard.arms.steer_merge import merge_grid_runs
 

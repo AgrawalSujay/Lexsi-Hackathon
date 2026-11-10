@@ -266,3 +266,12 @@ def test_persistent_oom_halves_to_one_then_propagates(
     assert torch.cuda.empty_cache.call_count == 3
     assert "batch size 4 -> 2" in caplog.text
     assert "batch size 2 -> 1" in caplog.text
+
+
+def test_explicit_fp16_reaches_safetune_without_bf16(dependencies):
+    _, _, _, helpers, torch, _ = dependencies
+    torch.float16 = object()
+    generator = HFGenerator("tiny-aya", dtype="fp16")
+    helpers.load_model.assert_called_once_with("tiny-aya", dtype=torch.float16)
+    assert generator.dtype == "fp16"
+    assert not hasattr(torch, "bfloat16")

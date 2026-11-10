@@ -54,6 +54,7 @@ TASKS = (
     "steer-merge",
     "eval-arm",
     "eval-suite",
+    "eval-side",
 )
 SPLITS = ("train", "dev", "test", "test_cueflip")
 
@@ -65,7 +66,12 @@ def _packages() -> list[str]:
         return []
     project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     extras = project["project"]["optional-dependencies"]
-    return [*project["project"]["dependencies"], *extras["gpu"], *extras["dev"]]
+    return [
+        *project["project"]["dependencies"],
+        *extras["gpu"],
+        *extras["dev"],
+        *extras["eval"],
+    ]
 
 
 image = (
@@ -129,6 +135,26 @@ def _steps(
     checkpoint_dir: str | None = None,
     arm: str = "A0",
 ) -> list[tuple[str, list[str]]]:
+    if task == "eval-side":
+        return [
+            (
+                "eval-side",
+                [
+                    "python",
+                    "-m",
+                    "turnguard",
+                    "eval-side",
+                    "--arm",
+                    arm,
+                    "--model",
+                    model,
+                    "--dtype",
+                    "fp16",
+                    "--batch-size",
+                    str(batch_size),
+                ],
+            )
+        ]
     if task == "eval-arm":
         task = "split"
     if task == "eval-suite":
@@ -784,7 +810,7 @@ def main(
 ) -> None:
     if task not in TASKS:
         raise SystemExit(f"--task must be one of {', '.join(TASKS)}")
-    eval_tasks = ("split", "eval-arm", "eval-suite")
+    eval_tasks = ("split", "eval-arm", "eval-suite", "eval-side")
     if arm not in ("A0", "A1", "A2", "A4"):
         raise SystemExit("--arm must be A0, A1, A2 or A4")
     if arm != "A0" and task not in eval_tasks:
@@ -819,7 +845,7 @@ def main(
     parse_shard(shard)
     if split not in SPLITS:
         raise SystemExit(f"--split must be one of {', '.join(SPLITS)}")
-    if shard and task not in eval_tasks:
+    if shard and task not in ("split", "eval-arm", "eval-suite"):
         raise SystemExit("--shard requires a split/eval task")
     split_payload, split_info = (b"", None)
     if task in ("split", "eval-arm"):
@@ -840,7 +866,7 @@ def main(
         f"Running {task} on {hardware} with {model} at commit {info['git_commit'][:7]}"
     )
     remote_options = {"gpu": gpu}
-    if task in ("train-a4", "steer-tune", "eval-arm", "eval-suite"):
+    if task in ("train-a4", "steer-tune", "eval-arm", "eval-suite", "eval-side"):
         remote_options["timeout"] = 6 * 60 * 60
     if task == "steer-merge":
         names = [name.strip() for name in grid_runs.split(",") if name.strip()]

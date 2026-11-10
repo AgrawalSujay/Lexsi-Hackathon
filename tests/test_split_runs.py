@@ -829,3 +829,32 @@ def test_cpu_merge_reads_volume_results_and_persists_selection(
     assert (selected / "steering/A2/headline.pt").read_bytes() == (
         paths[0] / "steering/A2/headline.pt"
     ).read_bytes()
+
+
+def test_side_task_is_generation_only_and_default_l40s(modal_runner, monkeypatch):
+    [(name, command)] = modal_runner._steps("eval-side", "dev", arm="A1", batch_size=4)
+    assert name == "eval-side" and command[3] == "eval-side"
+    assert command[command.index("--dtype") + 1] == "fp16"
+    assert "--judge" not in command and "judge-side" not in command
+    calls = []
+
+    class Remote:
+        def with_options(self, **kwargs):
+            assert kwargs == {"gpu": "L40S", "timeout": 6 * 60 * 60}
+            return self
+
+        def spawn(self, *args):
+            calls.append(args)
+            return types.SimpleNamespace(object_id="side-job")
+
+    monkeypatch.setattr(modal_runner, "run_task", Remote())
+    monkeypatch.setattr(
+        modal_runner,
+        "_source_archive",
+        lambda: (
+            b"source",
+            {"git_commit": "abc1234", "working_tree_had_uncommitted_changes": False},
+        ),
+    )
+    modal_runner.main(task="eval-side", model="dev", arm="A1", background=True)
+    assert calls[0][0] == "eval-side" and calls[0][-3:] == ("A1", None, None)
