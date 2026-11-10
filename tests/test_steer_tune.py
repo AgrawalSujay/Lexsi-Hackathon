@@ -249,3 +249,47 @@ def test_tuning_dry_run_uses_recorded_a0_without_model_or_outputs(
     assert result["composition"] == {"injected": 1, "clean": 1, "authorized": 1}
     assert result["extraction"]["pairs"] == 1
     assert not (root / "steering").exists() and not (root / "runs").exists()
+
+
+def test_grid_shard_runs_only_its_two_points_and_defers_selection(
+    tuning_run, monkeypatch
+):
+    root, dev, _, snapshot, _, scripts = tuning_run
+
+    class Generator:
+        name = MODEL
+        intervention = None
+
+        def generate(self, batch):
+            return [scripts[r.episode_id][r.step - 1] for r in batch]
+
+    vector = root / "steering/A2/headline.pt"
+
+    def build(*args, **kwargs):
+        vector.parent.mkdir(parents=True, exist_ok=True)
+        vector.write_bytes(b"fake")
+        return {"vector": str(vector), "vector_sha256": "f" * 64}
+
+    monkeypatch.setattr(tuning, "build_vectors", build)
+    cells = []
+
+    def hook(**kwargs):
+        cells.append((kwargs["layer"], kwargs["alpha"]))
+        return nullcontext
+
+    monkeypatch.setattr(tuning, "make_hook", hook)
+    result = tuning.tune(
+        root / "pairs",
+        dev,
+        snapshot,
+        root=root,
+        generator=Generator(),
+        n=1,
+        grid_shard="2/3",
+    )
+    assert cells == [(14, 8), (22, 4)]
+    assert result["chosen"] is None and result["status"] == "grid-shard"
+    assert len(result["points"]) == 2
+    assert "shard-2-of-3" in result["run_dir"]
+    assert not (Path(result["run_dir"]) / "selected_arm.yaml").exists()
+    assert not vector.with_suffix(".yaml").exists()

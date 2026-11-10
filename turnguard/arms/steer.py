@@ -198,12 +198,17 @@ def build_vectors(
     generator = generator or HFGenerator(model_id, seed=1234)
     if generator.name != model_id:
         raise ValueError("Extraction generator model does not match configuration")
+    revision = getattr(getattr(generator.model, "config", None), "_commit_hash", None)
+    if not isinstance(revision, str) or not revision:
+        raise ValueError("A2 extraction requires a resolved model revision")
     started = time.perf_counter()
     vectors, stats = extract_vectors(generator, rows, layers)
     stats["elapsed_seconds"] = time.perf_counter() - started
     if hashlib.sha256(source.read_bytes()).hexdigest() != before:
         raise ValueError("Pairs changed during vector extraction")
-    provenance.update(extraction=stats, environment=_environment(root))
+    provenance.update(
+        extraction=stats, environment=_environment(root), model_revision=revision
+    )
     import torch
 
     output = root / "steering/A2" / f"{model}.pt"
@@ -270,6 +275,12 @@ def make_hook(
         raise ValueError("A2 requires train-only CAA provenance")
     if provenance["model_id"] != generator.name:
         raise ValueError("Steering vector model does not match generator")
+    revision = getattr(getattr(generator.model, "config", None), "_commit_hash", None)
+    if (
+        provenance.get("model_revision") is not None
+        and revision != provenance["model_revision"]
+    ):
+        raise ValueError("Steering vector model revision does not match generator")
     if (
         layer < 0
         or layer >= len(decoder_layers(generator.model))

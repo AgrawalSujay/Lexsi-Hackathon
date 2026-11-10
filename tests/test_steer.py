@@ -100,6 +100,7 @@ class Block:
 
 class Model:
     device = "cpu"
+    config = types.SimpleNamespace(_commit_hash="b" * 40)
 
     def __init__(self):
         self.blocks = [Block(), Block()]
@@ -317,3 +318,11 @@ def test_invalid_layers(value):
 def test_invalid_vectors(fake_gpu, value):
     with pytest.raises(ValueError, match="finite, nonzero"):
         steer.unit_vector(Tensor(value))
+
+
+def test_runtime_refuses_model_revision_change(fake_gpu, pair_source):
+    root, path, _, generator = pair_source
+    report = steer.build_vectors(path, root=root, generator=generator, layers=[0])
+    generator.model.config = types.SimpleNamespace(_commit_hash="another-revision")
+    with pytest.raises(ValueError, match="model revision does not match"):
+        steer.make_hook(generator=generator, vector=report["vector"], layer=0, alpha=4)

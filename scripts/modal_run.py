@@ -40,9 +40,21 @@ from pathlib import Path
 import modal
 
 ROOT = Path(__file__).resolve().parents[1]
+VOLUME_RUNS = Path("/cache/runs")
 CHECKPOINT_ROOT = Path("/cache/checkpoints")  # on the persistent volume
 GPU_CHOICES = ("L40S", "A100-80GB", "H100")
-TASKS = ("smoke", "examples", "probe", "all", "split", "train-a4", "steer-tune")
+TASKS = (
+    "smoke",
+    "examples",
+    "probe",
+    "all",
+    "split",
+    "train-a4",
+    "steer-tune",
+    "steer-merge",
+    "eval-arm",
+    "eval-suite",
+)
 SPLITS = ("train", "dev", "test", "test_cueflip")
 
 
@@ -117,6 +129,23 @@ def _steps(
     checkpoint_dir: str | None = None,
     arm: str = "A0",
 ) -> list[tuple[str, list[str]]]:
+    if task == "eval-arm":
+        task = "split"
+    if task == "eval-suite":
+        return [
+            (
+                name,
+                _steps(
+                    "split",
+                    model,
+                    split=name,
+                    shard=shard,
+                    batch_size=batch_size,
+                    arm=arm,
+                )[0][1],
+            )
+            for name in ("test", "test_cueflip")
+        ]
     if task == "train-a4":
         command = [
             "python",
@@ -403,7 +432,12 @@ def _unpack_tune(payload: bytes, info: dict, work: Path):
     timeout=6 * 60 * 60,
 )
 def run_steer_tune(
-    model: str, source: bytes, build_info: dict, payload: bytes, info: dict
+    model: str,
+    source: bytes,
+    build_info: dict,
+    payload: bytes,
+    info: dict,
+    grid_shard: str | None = None,
 ):
     work = Path(tempfile.mkdtemp(prefix="turnguard-steer-"))
     with tarfile.open(fileobj=io.BytesIO(source)) as archive:
@@ -425,6 +459,8 @@ def run_steer_tune(
         "--baseline-snapshot",
         "baseline.json",
     ]
+    if grid_shard:
+        command += ["--grid-shard", grid_shard]
     code = None
     try:
         code = subprocess.run(command, cwd=work).returncode
@@ -436,7 +472,7 @@ def run_steer_tune(
                     shutil.copytree(steering, run / "steering", dirs_exist_ok=True)
                 shutil.copyfile(work / "STEER_UPLOAD.json", run / "STEER_UPLOAD.json")
             shutil.copytree(runs, "/cache/runs", dirs_exist_ok=True)
-        if code == 0 and steering.exists():
+        if code == 0 and grid_shard is None and steering.exists():
             shutil.copytree(steering, "/cache/steering", dirs_exist_ok=True)
         cache.commit()
     buffer = io.BytesIO()
@@ -445,6 +481,146 @@ def run_steer_tune(
             if (work / name).exists():
                 archive.add(work / name, arcname=name)
     return {"steps": {"steer-tune": code}, "runs_tar": buffer.getvalue()}
+
+
+def _suite_upload(data_root: str = "") -> tuple[bytes, dict]:
+    contents, splits = {}, {}
+    for name in ("test", "test_cueflip"):
+        directory = Path(data_root) / name if data_root else None
+        payload, info = _split_upload(name, directory)
+        contents[f"{name}.tar.gz"], splits[name] = payload, info
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
+        for name, value in contents.items():
+            member = tarfile.TarInfo(name)
+            member.size = len(value)
+            archive.addfile(member, io.BytesIO(value))
+    return buffer.getvalue(), {
+        "splits": splits,
+        "files": {
+            key: hashlib.sha256(value).hexdigest() for key, value in contents.items()
+        },
+    }
+
+
+def _unpack_suite(payload: bytes, info: dict, work: Path) -> None:
+    contents = {}
+    with tarfile.open(fileobj=io.BytesIO(payload)) as archive:
+        for member in archive.getmembers():
+            if (
+                not member.isfile()
+                or member.name not in ("test.tar.gz", "test_cueflip.tar.gz")
+                or member.name in contents
+            ):
+                raise ValueError("Invalid eval-suite archive")
+            contents[member.name] = archive.extractfile(member).read()
+    hashes = {
+        name: hashlib.sha256(value).hexdigest() for name, value in contents.items()
+    }
+    if (
+        hashes != info["files"]
+        or set(hashes) != {"test.tar.gz", "test_cueflip.tar.gz"}
+        or set(info["splits"]) != {"test", "test_cueflip"}
+    ):
+        raise ValueError("Eval-suite checksum mismatch")
+    for name in ("test", "test_cueflip"):
+        if info["splits"][name]["split"] != name:
+            raise ValueError("Eval-suite split label mismatch")
+        _unpack_split(contents[f"{name}.tar.gz"], info["splits"][name], work)
+
+
+def _volume_run(name: str) -> Path:
+    if not name or Path(name).name != name or name in (".", ".."):
+        raise ValueError("Volume run must be a single run name")
+    root = VOLUME_RUNS.resolve()
+    run = (root / name).resolve()
+    if not run.is_relative_to(root) or not run.is_dir():
+        raise ValueError(f"No volume run: {name}")
+    return run
+
+
+def _stage_arm(
+    arm: str, model: str, adapter_run: str | None, steer_run: str | None, work: Path
+) -> None:
+    import yaml
+
+    if arm not in ("A2", "A4"):
+        return
+    models = yaml.safe_load((work / "configs/models.yaml").read_text())["models"]
+    settings_path = work / "configs/arms.yaml"
+    settings = yaml.safe_load(settings_path.read_text())
+    name = adapter_run if arm == "A4" else steer_run
+    run = _volume_run(name or "")
+    if arm == "A4":
+        source = run / "adapters/A4" / model
+        if not (source / "adapter_config.json").is_file() or not list(
+            source.glob("adapter_model.*")
+        ):
+            raise ValueError(f"Missing A4 adapter for {model} in {name}")
+        config = json.loads((source / "adapter_config.json").read_text())
+        if config.get("base_model_name_or_path") not in (None, models[model]):
+            raise ValueError("Adapter base model does not match evaluation model")
+        target = work / "adapters/A4" / model
+        settings["arms"]["A4"] = {"adapter": str(target.resolve())}
+    else:
+        selected = run / "selected_arm.yaml"
+        if not selected.is_file():
+            raise ValueError("No selected A2 config: merge partial grid shards first")
+        spec = yaml.safe_load(selected.read_text())["arms"]["A2"]
+        if spec.get("intervention_factory") != "turnguard.arms.steer:make_hook":
+            raise ValueError("Unexpected A2 intervention factory")
+        kwargs = spec["intervention_kwargs"]
+        source = run / "steering/A2"
+        vector = source / f"{model}.pt"
+        sidecar = json.loads(vector.with_suffix(".json").read_text())
+        digest = hashlib.sha256(vector.read_bytes()).hexdigest()
+        if (
+            sidecar["model_id"] != models[model]
+            or sidecar["vector_sha256"] != digest
+            or kwargs["vector_sha256"] != digest
+        ):
+            raise ValueError("Selected A2 vector model/checksum mismatch")
+        summary = json.loads((run / "summary.json").read_text())
+        if any(summary["chosen"][key] != kwargs[key] for key in ("layer", "alpha")):
+            raise ValueError("Selected A2 settings differ from winning grid point")
+        target = work / "steering/A2"
+        kwargs["vector"] = str((target / f"{model}.pt").resolve())
+        settings["arms"]["A2"] = spec
+    if (
+        source.is_symlink()
+        or not source.resolve().is_relative_to(run)
+        or any(p.is_symlink() for p in source.rglob("*"))
+    ):
+        raise ValueError("Arm artifact contains a symlink")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(source, target)
+    settings_path.write_text(yaml.safe_dump(settings, sort_keys=False))
+    files = {
+        p.relative_to(target).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
+        for p in target.rglob("*")
+        if p.is_file()
+    }
+    (work / "ARM_ARTIFACT.json").write_text(
+        json.dumps({"arm": arm, "source_run": name, "files": files}, indent=2) + "\n"
+    )
+
+
+@app.function(volumes={"/cache": cache}, timeout=300)
+def run_steer_merge(source: bytes, info: dict, names: list[str]) -> dict:
+    cache.reload()
+    work = Path(tempfile.mkdtemp(prefix="turnguard-merge-"))
+    with tarfile.open(fileobj=io.BytesIO(source)) as archive:
+        archive.extractall(work, filter="data")
+    (work / "BUILD_INFO.json").write_text(json.dumps(info) + "\n")
+    sys.path.insert(0, str(work))
+    from turnguard.arms.steer_merge import merge_grid_runs
+
+    result = merge_grid_runs([_volume_run(name) for name in names], root=work)
+    shutil.copytree(work / "runs", "/cache/runs", dirs_exist_ok=True)
+    cache.commit()
+    result["volume_run"] = Path(result["run_dir"]).name
+    print(json.dumps(result, indent=2), flush=True)
+    return result
 
 
 def _print_split_metrics(runs: Path) -> None:
@@ -499,6 +675,7 @@ def run_task(
     smoke: bool = False,
     arm: str = "A0",
     adapter_run: str | None = None,
+    steer_run: str | None = None,
 ) -> dict:
     work = Path(tempfile.mkdtemp(prefix="turnguard-"))
     work.mkdir(parents=True, exist_ok=True)
@@ -506,18 +683,15 @@ def run_task(
         archive.extractall(work, filter="data")
     (work / "BUILD_INFO.json").write_text(json.dumps(info, indent=2) + "\n")
     sys.path.insert(0, str(work))
-    if task == "split":
+    if task in ("split", "eval-arm"):
         if split_info is None:
             raise ValueError("Split payload is required")
         _unpack_split(split_payload, split_info, work)
-    if adapter_run:
-        # Trained adapters live beside their training run on the volume; the
-        # arm config refers to adapters/A4/<model> relative to the work dir.
-        source_adapters = Path("/cache/runs") / adapter_run / "adapters"
-        if not source_adapters.is_dir():
-            raise ValueError(f"No adapters in volume run {adapter_run}")
-        shutil.copytree(source_adapters, work / "adapters")
-        print(f"Adapter from runs/{adapter_run}", flush=True)
+    if task == "eval-suite":
+        if split_info is None:
+            raise ValueError("Eval-suite payload is required")
+        _unpack_suite(split_payload, split_info, work)
+    _stage_arm(arm, model, adapter_run, steer_run, work)
     checkpoint_dir = None
     committer = None
     if task == "train-a4":
@@ -538,7 +712,7 @@ def run_task(
         for name, command in _steps(
             task,
             model,
-            split=split_info["split"] if split_info else "dev",
+            split=split_info.get("split", "dev") if split_info else "dev",
             shard=shard,
             batch_size=batch_size,
             smoke=smoke,
@@ -549,8 +723,10 @@ def run_task(
             code = subprocess.run(command, cwd=work).returncode
             results[name] = code
             if code != 0:
-                print(f"!! step {name} failed with exit code {code}; stopping")
-                break
+                suffix = "continuing suite" if task == "eval-suite" else "stopping"
+                print(f"!! step {name} failed with exit code {code}; {suffix}")
+                if task != "eval-suite":
+                    break
     finally:
         if committer is not None:
             stop_commits.set()
@@ -568,9 +744,15 @@ def run_task(
                     shutil.copyfile(
                         work / "PAIRS_UPLOAD.json", run / "PAIRS_UPLOAD.json"
                     )
+            if (work / "ARM_ARTIFACT.json").exists():
+                for run in runs.iterdir():
+                    if run.is_dir():
+                        shutil.copyfile(
+                            work / "ARM_ARTIFACT.json", run / "ARM_ARTIFACT.json"
+                        )
             shutil.copytree(runs, "/cache/runs", dirs_exist_ok=True)
         cache.commit()  # keep downloaded weights (and runs) for the next run
-    if task == "split" and runs.exists():
+    if task in ("split", "eval-arm", "eval-suite") and runs.exists():
         _print_split_metrics(runs)
     buffer = io.BytesIO()
     with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
@@ -595,11 +777,32 @@ def main(
     adapter_run: str = "",
     dev_dir: str = "",
     baseline_run: str = "",
+    steer_run: str = "",
+    grid_shard: str | None = None,
+    grid_runs: str = "",
+    data_root: str = "",
 ) -> None:
     if task not in TASKS:
         raise SystemExit(f"--task must be one of {', '.join(TASKS)}")
-    if arm != "A0" and task != "split":
-        raise SystemExit("--arm requires --task split")
+    eval_tasks = ("split", "eval-arm", "eval-suite")
+    if arm not in ("A0", "A1", "A2", "A4"):
+        raise SystemExit("--arm must be A0, A1, A2 or A4")
+    if arm != "A0" and task not in eval_tasks:
+        raise SystemExit("--arm requires a split/eval task")
+    if adapter_run and arm != "A4":
+        raise SystemExit("--adapter-run requires --arm A4")
+    if steer_run and arm != "A2":
+        raise SystemExit("--steer-run requires --arm A2")
+    if arm == "A2" and not steer_run:
+        raise SystemExit("--arm A2 requires --steer-run <volume run name>")
+    if task == "eval-arm" and split not in ("dev", "test", "test_cueflip"):
+        raise SystemExit("eval-arm split must be dev, test or test_cueflip")
+    if grid_shard is not None:
+        if task != "steer-tune":
+            raise SystemExit("--grid-shard requires --task steer-tune")
+        from turnguard.arms.steer_tune import grid_partition
+
+        grid_partition(grid_shard)
     if arm == "A4" and not adapter_run:
         raise SystemExit("--arm A4 requires --adapter-run <volume run name>")
     if gpu not in GPU_CHOICES:
@@ -616,9 +819,14 @@ def main(
     parse_shard(shard)
     if split not in SPLITS:
         raise SystemExit(f"--split must be one of {', '.join(SPLITS)}")
-    if shard and task != "split":
-        raise SystemExit("--shard requires --task split")
-    split_payload, split_info = _split_upload(split) if task == "split" else (b"", None)
+    if shard and task not in eval_tasks:
+        raise SystemExit("--shard requires a split/eval task")
+    split_payload, split_info = (b"", None)
+    if task in ("split", "eval-arm"):
+        directory = Path(data_root) / split if data_root else None
+        split_payload, split_info = _split_upload(split, directory)
+    if task == "eval-suite":
+        split_payload, split_info = _suite_upload(data_root)
     if task == "train-a4":
         split_payload, split_info = _pairs_upload(pairs or None)
     if task == "steer-tune":
@@ -627,13 +835,26 @@ def main(
     source, info = _source_archive()
     if info["working_tree_had_uncommitted_changes"]:
         print("warning: uncommitted changes exist and are NOT sent to Modal")
-    print(f"Running {task} on {gpu} with {model} at commit {info['git_commit'][:7]}")
+    hardware = "CPU" if task == "steer-merge" else gpu
+    print(
+        f"Running {task} on {hardware} with {model} at commit {info['git_commit'][:7]}"
+    )
     remote_options = {"gpu": gpu}
-    if task in ("train-a4", "steer-tune"):
+    if task in ("train-a4", "steer-tune", "eval-arm", "eval-suite"):
         remote_options["timeout"] = 6 * 60 * 60
+    if task == "steer-merge":
+        names = [name.strip() for name in grid_runs.split(",") if name.strip()]
+        if not names or len(names) > 3:
+            raise SystemExit(
+                "--grid-runs requires one to three comma-separated run names"
+            )
+        # Deliberately CPU-only; do not forward --gpu to the merge function.
+        result = run_steer_merge.remote(source, info, names)
+        print(f"Selected A2 volume run: {result['volume_run']}")
+        return
     if task == "steer-tune":
         remote = run_steer_tune.with_options(**remote_options)
-        args = (model, source, info, split_payload, split_info)
+        args = (model, source, info, split_payload, split_info, grid_shard)
         if background:
             call = remote.spawn(*args)
             print(f"Started steering grid in the background: {call.object_id}")
@@ -661,6 +882,7 @@ def main(
             smoke,
             arm,
             adapter_run or None,
+            steer_run or None,
         )
         print(f"Started in the background: {call.object_id}")
         print("Fetch when done: modal volume ls turnguard-hf-cache runs")
@@ -677,6 +899,7 @@ def main(
         smoke,
         arm,
         adapter_run or None,
+        steer_run or None,
     )
     with tarfile.open(fileobj=io.BytesIO(result["runs_tar"])) as archive:
         names = sorted(

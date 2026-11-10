@@ -568,6 +568,12 @@ def main(argv: list[str] | None = None) -> int:
     tuning.add_argument("--dev-dir", type=Path, required=True)
     tuning.add_argument("--baseline-snapshot", type=Path, required=True)
     tuning.add_argument("--dry-run", action="store_true")
+    tuning.add_argument("--grid-shard", help="i/k, at most three grid shards")
+    merging = commands.add_parser(
+        "steer-merge", help="CPU-only selection from grid shards"
+    )
+    merging.add_argument("--runs", type=Path, nargs="+", required=True)
+    merging.add_argument("--output", type=Path)
     train = commands.add_parser("train", help="A4 LoRA preference training")
     train.add_argument("--pairs", type=Path)
     train.add_argument("--arm", default="A4")
@@ -583,6 +589,15 @@ def main(argv: list[str] | None = None) -> int:
     for name in ("eval-external", "report"):
         commands.add_parser(name, help="not implemented yet")
     args = parser.parse_args(argv)
+    if args.command == "steer-merge":
+        from turnguard.arms.steer_merge import merge_grid_runs
+
+        try:
+            report = merge_grid_runs(args.runs, output=args.output)
+        except (ValueError, OSError, KeyError) as error:
+            parser.error(str(error))
+        print(json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False))
+        return 0
     if args.command in ("steer-vectors", "steer-tune"):
         try:
             if args.command == "steer-vectors":
@@ -601,6 +616,7 @@ def main(argv: list[str] | None = None) -> int:
                     args.pairs,
                     args.dev_dir,
                     args.baseline_snapshot,
+                    grid_shard=args.grid_shard,
                     model=args.model,
                     dry_run=args.dry_run,
                 )

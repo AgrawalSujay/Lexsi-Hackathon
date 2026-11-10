@@ -367,7 +367,7 @@ def test_modal_train_background_and_smoke_command(tmp_path, modal_runner, monkey
         smoke=True,
     )
     args = captured[0]
-    assert args[0] == "train-a4" and args[8] is True and args[-2:] == ("A0", None)
+    assert args[0] == "train-a4" and args[8] is True and args[-3:] == ("A0", None, None)
     assert args[5]["files"]["pairs.jsonl"]
     with pytest.raises(SystemExit, match="requires --gpu"):
         modal_runner.main(task="train-a4", gpu="L40S")
@@ -559,3 +559,273 @@ def test_tuning_remote_persists_vectors_selection_and_grid(
         run / "steering/A2/headline.yaml"
     ).exists()
     assert json.loads((run / "STEER_UPLOAD.json").read_text()) == info
+
+
+@pytest.fixture
+def frozen_suite(release):
+    import shutil
+
+    for name in ("test", "test_cueflip"):
+        directory = release.with_name(name)
+        shutil.copytree(release, directory)
+        values = [
+            json.loads(line)
+            for line in (directory / "episodes.jsonl").read_text().splitlines()
+        ]
+        for value in values:
+            value["split"] = "test"
+        (directory / "episodes.jsonl").write_text(
+            "".join(json.dumps(v) + "\n" for v in values)
+        )
+        _freeze_directory(directory)
+    return release.parent
+
+
+def setup_work(work):
+    (work / "configs").mkdir(parents=True)
+    for name in ("arms.yaml", "models.yaml"):
+        (work / "configs" / name).write_bytes((ROOT / "configs" / name).read_bytes())
+
+
+def test_eval_suite_transport_checks_both_frozen_releases(
+    frozen_suite, tmp_path, modal_runner
+):
+    payload, info = modal_runner._suite_upload(str(frozen_suite))
+    assert set(info["splits"]) == {"test", "test_cueflip"}
+    work = tmp_path / "remote-suite"
+    modal_runner._unpack_suite(payload, info, work)
+    for name in ("test", "test_cueflip"):
+        assert (work / "data/v1" / name / "FROZEN").exists()
+    bad = copy.deepcopy(info)
+    bad["files"]["test.tar.gz"] = "0" * 64
+    with pytest.raises(ValueError, match="checksum mismatch"):
+        modal_runner._unpack_suite(payload, bad, tmp_path / "bad-suite")
+    (frozen_suite / "test_cueflip/FROZEN").unlink()
+    with pytest.raises(ValueError):
+        modal_runner._suite_upload(str(frozen_suite))
+
+
+@pytest.mark.parametrize("arm", ["A0", "A1", "A2", "A4"])
+def test_eval_steps_reuse_split_arm_and_shard(modal_runner, arm):
+    suite = modal_runner._steps(
+        "eval-suite", "headline", arm=arm, shard="2/2", batch_size=5
+    )
+    assert [name for name, _ in suite] == ["test", "test_cueflip"]
+    for name, command in suite:
+        assert command[command.index("--arm") + 1] == arm
+        assert command[command.index("--split") + 1] == name
+        assert command[command.index("--shard") + 1] == "2/2"
+        assert command[command.index("--batch-size") + 1] == "5"
+    single = modal_runner._steps("eval-arm", "headline", arm=arm, split="dev")
+    assert (
+        single[0][1]
+        == modal_runner._steps("split", "headline", arm=arm, split="dev")[0][1]
+    )
+
+
+def test_a4_volume_adapter_uses_model_specific_path(
+    tmp_path, modal_runner, monkeypatch
+):
+    work = tmp_path / "work"
+    setup_work(work)
+    volume = tmp_path / "volume/runs"
+    adapter = volume / "train-job/adapters/A4/dev"
+    adapter.mkdir(parents=True)
+    (adapter / "adapter_config.json").write_text(
+        json.dumps({"base_model_name_or_path": "CohereLabs/tiny-aya-global"})
+    )
+    (adapter / "adapter_model.safetensors").write_bytes(b"fake-lora")
+    monkeypatch.setattr(modal_runner, "VOLUME_RUNS", volume)
+    modal_runner._stage_arm("A4", "dev", "train-job", None, work)
+    config = yaml.safe_load((work / "configs/arms.yaml").read_text())
+    actual = Path(config["arms"]["A4"]["adapter"])
+    assert actual == work / "adapters/A4/dev"
+    assert (actual / "adapter_model.safetensors").read_bytes() == b"fake-lora"
+    assert (
+        json.loads((work / "ARM_ARTIFACT.json").read_text())["source_run"]
+        == "train-job"
+    )
+    bad_work = tmp_path / "bad-work"
+    setup_work(bad_work)
+    (adapter / "adapter_config.json").write_text(
+        '{"base_model_name_or_path":"wrong-model"}'
+    )
+    with pytest.raises(ValueError, match="base model"):
+        modal_runner._stage_arm("A4", "dev", "train-job", None, bad_work)
+    with pytest.raises(ValueError, match="single run name"):
+        modal_runner._volume_run("../escape")
+
+
+def test_a2_volume_selection_uses_exact_winning_shard_vector(
+    tmp_path, modal_runner, monkeypatch
+):
+    from test_steer_merge import make_shards
+
+    from turnguard.arms.steer_merge import merge_grid_runs
+
+    paths = make_shards(tmp_path / "sources")
+    # The fake grid uses model ID "model"; evaluation's config must agree.
+    volume = tmp_path / "volume/runs"
+    merged = volume / "selected-job"
+    merge_grid_runs(paths, output=merged)
+    work = tmp_path / "work"
+    setup_work(work)
+    models = yaml.safe_load((work / "configs/models.yaml").read_text())
+    models["models"]["headline"] = "model"
+    (work / "configs/models.yaml").write_text(yaml.safe_dump(models))
+    monkeypatch.setattr(modal_runner, "VOLUME_RUNS", volume)
+    modal_runner._stage_arm("A2", "headline", None, "selected-job", work)
+    config = yaml.safe_load((work / "configs/arms.yaml").read_text())
+    kwargs = config["arms"]["A2"]["intervention_kwargs"]
+    assert kwargs["layer"] == 18 and kwargs["alpha"] == 8
+    assert (
+        Path(kwargs["vector"]).read_bytes()
+        == (paths[0] / "steering/A2/headline.pt").read_bytes()
+    )
+    (merged / "steering/A2/headline.pt").write_bytes(b"changed")
+    bad = tmp_path / "bad"
+    setup_work(bad)
+    (bad / "configs/models.yaml").write_text(yaml.safe_dump(models))
+    with pytest.raises(ValueError, match="checksum mismatch"):
+        modal_runner._stage_arm("A2", "headline", None, "selected-job", bad)
+
+
+def test_h100_grid_shard_background_dispatch(modal_runner, monkeypatch):
+    calls = []
+
+    class Remote:
+        def with_options(self, **kw):
+            assert kw == {"gpu": "H100", "timeout": 6 * 60 * 60}
+            return self
+
+        def spawn(self, *args):
+            calls.append(args)
+            return types.SimpleNamespace(object_id="grid-shard")
+
+    monkeypatch.setattr(modal_runner, "run_steer_tune", Remote())
+    monkeypatch.setattr(modal_runner, "_tune_upload", lambda *args: (b"inputs", {}))
+    monkeypatch.setattr(
+        modal_runner,
+        "_source_archive",
+        lambda: (
+            b"source",
+            {"git_commit": "abc1234", "working_tree_had_uncommitted_changes": False},
+        ),
+    )
+    modal_runner.main(task="steer-tune", gpu="H100", background=True, grid_shard="2/3")
+    assert calls[0][-1] == "2/3"
+
+
+def test_suite_background_and_cpu_volume_merge_dispatch(modal_runner, monkeypatch):
+    calls = []
+
+    class Remote:
+        def with_options(self, **kw):
+            assert kw == {"gpu": "H100", "timeout": 6 * 60 * 60}
+            return self
+
+        def spawn(self, *args):
+            calls.append(args)
+            return types.SimpleNamespace(object_id="suite")
+
+    monkeypatch.setattr(modal_runner, "run_task", Remote())
+    monkeypatch.setattr(
+        modal_runner, "_suite_upload", lambda root: (b"suite", {"splits": {}})
+    )
+    monkeypatch.setattr(
+        modal_runner,
+        "_source_archive",
+        lambda: (
+            b"source",
+            {"git_commit": "abc1234", "working_tree_had_uncommitted_changes": False},
+        ),
+    )
+    modal_runner.main(
+        task="eval-suite",
+        arm="A2",
+        steer_run="selected-job",
+        gpu="H100",
+        background=True,
+        shard="1/2",
+    )
+    assert calls[0][0] == "eval-suite" and calls[0][6] == "1/2"
+    assert calls[0][-3:] == ("A2", None, "selected-job")
+
+    class Merge:
+        # No with_options method: the CPU merge must not receive GPU options.
+        def remote(self, *args):
+            calls.append(args)
+            return {"volume_run": "merged-job"}
+
+    monkeypatch.setattr(modal_runner, "run_steer_merge", Merge())
+    modal_runner.main(task="steer-merge", grid_runs="one,two,three")
+    assert calls[-1][-1] == ["one", "two", "three"]
+
+
+def test_suite_job_runs_both_even_after_one_split_failure(
+    frozen_suite, tmp_path, modal_runner, monkeypatch
+):
+    payload, info = modal_runner._suite_upload(str(frozen_suite))
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w"):
+        pass
+    seen = []
+
+    def run(command, cwd):
+        name = command[command.index("--split") + 1]
+        seen.append(name)
+        (Path(cwd) / "runs" / name).mkdir(parents=True)
+        return types.SimpleNamespace(returncode=1 if name == "test" else 0)
+
+    monkeypatch.setattr(modal_runner.subprocess, "run", run)
+    monkeypatch.setattr(modal_runner, "_print_split_metrics", lambda runs: None)
+    original = modal_runner.shutil.copytree
+
+    def copytree(src, dst, *args, **kw):
+        if str(dst) == "/cache/runs":
+            dst = tmp_path / "volume/runs"
+        return original(src, dst, *args, **kw)
+
+    monkeypatch.setattr(modal_runner.shutil, "copytree", copytree)
+    monkeypatch.setattr(
+        modal_runner, "cache", types.SimpleNamespace(commit=lambda: None)
+    )
+    result = modal_runner.run_task(
+        "eval-suite", "headline", buffer.getvalue(), {}, payload, info, shard="2/2"
+    )
+    assert seen == ["test", "test_cueflip"]
+    assert result["steps"] == {"test": 1, "test_cueflip": 0}
+
+
+def test_cpu_merge_reads_volume_results_and_persists_selection(
+    tmp_path, modal_runner, monkeypatch
+):
+    from test_steer_merge import make_shards
+
+    volume = tmp_path / "volume/runs"
+    paths = make_shards(volume)
+    monkeypatch.setattr(modal_runner, "VOLUME_RUNS", volume)
+    monkeypatch.setattr(
+        modal_runner,
+        "cache",
+        types.SimpleNamespace(reload=lambda: None, commit=lambda: None),
+    )
+    original = modal_runner.shutil.copytree
+
+    def copytree(src, dst, *args, **kwargs):
+        if str(dst) == "/cache/runs":
+            dst = volume
+        return original(src, dst, *args, **kwargs)
+
+    monkeypatch.setattr(modal_runner.shutil, "copytree", copytree)
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w"):
+        pass
+    result = modal_runner.run_steer_merge(
+        buffer.getvalue(), {}, [p.name for p in paths]
+    )
+    selected = volume / result["volume_run"]
+    assert (selected / "selected_arm.yaml").exists()
+    assert (selected / "steering/A2/headline.pt").read_bytes() == (
+        paths[0] / "steering/A2/headline.pt"
+    ).read_bytes()

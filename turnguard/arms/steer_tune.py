@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import uuid
 from pathlib import Path
 
 import yaml
@@ -9,7 +10,7 @@ import yaml
 from turnguard.analysis import load_verified_run, regrade_records
 from turnguard.arms.steer import build_vectors, make_hook
 from turnguard.config import load_config
-from turnguard.data.loaders import _rank, load_split, split_fingerprint
+from turnguard.data.loaders import _rank, load_split, parse_shard, split_fingerprint
 from turnguard.harness import run_episodes
 from turnguard.metrics import compute_metrics
 from turnguard.models import HFGenerator
@@ -205,6 +206,55 @@ def pick_point(points: list[dict], baseline: dict) -> dict:
     return {**chosen, "qualified": bool(qualified), "rule": RULE}
 
 
+def grid_partition(shard: str | None) -> list[tuple[int, int]]:
+    index, count = parse_shard(shard)
+    if count > 3:
+        raise ValueError("Grid supports at most 3 shards")
+    return GRID[index - 1 :: count]
+
+
+def extraction_inputs(vector: dict) -> dict:
+    """Identity by extraction inputs; GPU tensor bytes need not be identical."""
+    names = (
+        "version",
+        "pairs_sha256",
+        "model_id",
+        "model_revision",
+        "layers",
+        "completion_tokens",
+        "pooling",
+        "layer_indexing",
+        "direction",
+        "normalization",
+    )
+    result = {key: vector.get(key) for key in names}
+    environment = vector.get("environment", {})
+    result["code_commit"] = environment.get("git_commit")
+    if any(value is None or value == "" for value in result.values()):
+        raise ValueError(
+            "Missing extraction input provenance (including model revision/code commit)"
+        )
+    if environment.get("git_dirty") is not False:
+        raise ValueError("Shard extraction must use committed code")
+    return result
+
+
+def selected_config(model: str, chosen: dict, vector_sha256: str) -> dict:
+    return {
+        "arms": {
+            "A2": {
+                "intervention_factory": "turnguard.arms.steer:make_hook",
+                "intervention_kwargs": {
+                    "vector": f"steering/A2/{model}.pt",
+                    "vector_sha256": vector_sha256,
+                    "layer": chosen["layer"],
+                    "alpha": chosen["alpha"],
+                },
+            }
+        }
+    }
+
+
 def tune(
     pairs: Path,
     dev_dir: Path,
@@ -215,7 +265,10 @@ def tune(
     dry_run: bool = False,
     generator=None,
     n: int = 50,
+    grid_shard: str | None = None,
 ) -> dict:
+    cells = grid_partition(grid_shard)
+    index, count = parse_shard(grid_shard)
     root = Path(root) if root else Path(__file__).resolve().parents[2]
     config = load_config(root / "configs/models.yaml")
     model_id = config["models"][model]
@@ -234,6 +287,11 @@ def tune(
         "baseline_source_sha256": snapshot["source_sha256"],
         "grading_version": GRADING_VERSION,
         "grid": GRID,
+        "grid_shard": {"index": index, "count": count},
+        "grid_cells": cells,
+        "model_key": model,
+        "decoding": config["decoding"],
+        "protocol_version": PROTOCOL_VERSION,
         "rule": RULE,
         "a0_gpu_generations": 0,
     }
@@ -244,7 +302,11 @@ def tune(
         return summary
     build_vectors(pairs, model=model, root=root, layers=[10, 14, 18, 22], dry_run=True)
     parent_timer = RunTimer()
-    parent = new_run_dir("A2", model_id, "steer-tune", root=root)
+    nonce = uuid.uuid4().hex[:8]
+    label = "steer-tune"
+    if count > 1:
+        label += f"-shard-{index}-of-{count}"
+    parent = new_run_dir("A2", model_id, f"{label}-{nonce}", root=root)
     (parent / "config.yaml").write_text(yaml.safe_dump({**config, **summary}))
     print(
         json.dumps({"A0": summary["baseline"], "composition": summary["composition"]}),
@@ -269,9 +331,11 @@ def tune(
             json.dumps(baseline_metrics, indent=2) + "\n"
         )
         points = []
-        for layer, alpha in GRID:
+        for layer, alpha in cells:
             timer = RunTimer()
-            run = new_run_dir("A2", model_id, f"dev-steer-L{layer}-a{alpha}", root=root)
+            run = new_run_dir(
+                "A2", model_id, f"dev-steer-L{layer}-a{alpha}-{nonce}", root=root
+            )
             arm = {
                 "name": "A2",
                 "system_prompt": None,
@@ -330,6 +394,7 @@ def tune(
                     "alpha": alpha,
                     **score(metrics),
                     "run_dir": str(run),
+                    "vector_sha256": vector_report["vector_sha256"],
                 }
                 points.append(point)
                 print(json.dumps(point), flush=True)
@@ -337,24 +402,20 @@ def tune(
             finally:
                 generator.intervention = None
                 timer.finish(run)
-        chosen = pick_point(points, summary["baseline"])
-        selected = {
-            "arms": {
-                "A2": {
-                    "intervention_factory": "turnguard.arms.steer:make_hook",
-                    "intervention_kwargs": {
-                        "vector": f"steering/A2/{model}.pt",
-                        "vector_sha256": vector_report["vector_sha256"],
-                        "layer": chosen["layer"],
-                        "alpha": chosen["alpha"],
-                    },
-                }
-            }
-        }
-        (parent / "selected_arm.yaml").write_text(yaml.safe_dump(selected))
-        (root / "steering/A2" / f"{model}.yaml").write_text(yaml.safe_dump(selected))
+        chosen = None
+        if count == 1:
+            chosen = pick_point(points, summary["baseline"])
+            selected = selected_config(model, chosen, vector_report["vector_sha256"])
+            (parent / "selected_arm.yaml").write_text(yaml.safe_dump(selected))
+            (root / "steering/A2" / f"{model}.yaml").write_text(
+                yaml.safe_dump(selected)
+            )
         summary.update(
-            points=points, chosen=chosen, vector=vector_report, run_dir=str(parent)
+            points=points,
+            chosen=chosen,
+            vector=vector_report,
+            run_dir=str(parent),
+            status="complete" if count == 1 else "grid-shard",
         )
         (parent / "summary.json").write_text(
             json.dumps(summary, indent=2, ensure_ascii=False) + "\n"
