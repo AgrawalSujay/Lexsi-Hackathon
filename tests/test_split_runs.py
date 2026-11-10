@@ -427,3 +427,135 @@ def test_train_a4_step_passes_persistent_checkpoint_dir(modal_runner):
 def test_split_step_runs_the_requested_arm(modal_runner):
     ((name, command),) = modal_runner._steps("split", "headline", split="dev", arm="A4")
     assert command[command.index("--arm") + 1] == "A4"
+
+
+def test_tuning_upload_contains_verified_recorded_a0_and_checksums(
+    release, tmp_path, modal_runner, monkeypatch
+):
+    from turnguard.arms import steer_tune
+    from turnguard.data.loaders import split_fingerprint
+
+    directory = training_pairs(tmp_path)
+    snapshot = {
+        "dataset": split_fingerprint(release),
+        "selected_ids": ["fake"],
+        "records": [],
+        "model_id": "CohereLabs/aya-expanse-8b",
+    }
+    monkeypatch.setattr(steer_tune, "prepare_baseline", lambda *a, **kw: snapshot)
+    payload, info = modal_runner._tune_upload(
+        str(directory), str(release), "read-only-a0", "headline"
+    )
+    assert set(info["files"]) == {"pairs.tar.gz", "dev.tar.gz", "baseline.json"}
+    work = tmp_path / "remote-tune"
+    work.mkdir()
+    modal_runner._unpack_tune(payload, info, work)
+    assert json.loads((work / "baseline.json").read_text()) == snapshot
+    assert (work / "data/pairs/train/pairs.jsonl").exists()
+    assert (work / "data/v1/dev/episodes.jsonl").exists()
+    bad = copy.deepcopy(info)
+    bad["files"]["baseline.json"] = "0" * 64
+    with pytest.raises(ValueError, match="tuning checksum mismatch"):
+        modal_runner._unpack_tune(payload, bad, tmp_path / "bad-tune")
+
+
+def test_tuning_background_uses_dedicated_job_and_never_a0_gpu(
+    modal_runner, monkeypatch
+):
+    calls = []
+
+    class Remote:
+        def with_options(self, **kwargs):
+            assert kwargs == {"gpu": "L40S", "timeout": 6 * 60 * 60}
+            return self
+
+        def spawn(self, *args):
+            calls.append(args)
+            return types.SimpleNamespace(object_id="fake-tune")
+
+    def upload(*args):
+        calls.append(args)
+        return b"packed-inputs", {"files": {"baseline.json": "verified"}}
+
+    monkeypatch.setattr(modal_runner, "run_steer_tune", Remote())
+    monkeypatch.setattr(
+        modal_runner,
+        "run_task",
+        types.SimpleNamespace(
+            with_options=lambda **kw: pytest.fail("A4/ordinary GPU job used")
+        ),
+    )
+    monkeypatch.setattr(modal_runner, "_tune_upload", upload)
+    monkeypatch.setattr(
+        modal_runner,
+        "_source_archive",
+        lambda: (
+            b"source",
+            {"git_commit": "1234567", "working_tree_had_uncommitted_changes": False},
+        ),
+    )
+    modal_runner.main(
+        task="steer-tune",
+        model="headline",
+        background=True,
+        pairs="pairs",
+        dev_dir="dev",
+        baseline_run="a0",
+    )
+    assert calls[0] == ("pairs", "dev", "a0", "headline")
+    assert calls[1][0] == "headline" and calls[1][3] == b"packed-inputs"
+
+
+@pytest.mark.parametrize("exit_code", [0, 1])
+def test_tuning_remote_persists_vectors_selection_and_grid(
+    release, tmp_path, modal_runner, monkeypatch, exit_code
+):
+    from turnguard.arms import steer_tune
+    from turnguard.data.loaders import split_fingerprint
+
+    directory = training_pairs(tmp_path)
+    monkeypatch.setattr(
+        steer_tune,
+        "prepare_baseline",
+        lambda *a, **kw: {"dataset": split_fingerprint(release)},
+    )
+    payload, info = modal_runner._tune_upload(
+        str(directory), str(release), "a0", "headline"
+    )
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w"):
+        pass
+
+    def run(command, cwd):
+        assert command[command.index("--baseline-snapshot") + 1] == "baseline.json"
+        assert command[3] == "steer-tune" and "run-episodes" not in command
+        work = Path(cwd)
+        folder = work / "runs/A2__headline__steer-tune__fake"
+        folder.mkdir(parents=True)
+        (folder / "summary.json").write_text("{}")
+        vector = work / "steering/A2/headline.pt"
+        vector.parent.mkdir(parents=True)
+        vector.write_bytes(b"fake-vector")
+        vector.with_suffix(".yaml").write_text("arms: {}")
+        return types.SimpleNamespace(returncode=exit_code)
+
+    monkeypatch.setattr(modal_runner.subprocess, "run", run)
+    original = modal_runner.shutil.copytree
+
+    def copytree(src, dst, *args, **kwargs):
+        if str(dst).startswith("/cache/"):
+            dst = tmp_path / "volume" / Path(dst).name
+        return original(src, dst, *args, **kwargs)
+
+    monkeypatch.setattr(modal_runner.shutil, "copytree", copytree)
+    monkeypatch.setattr(
+        modal_runner, "cache", types.SimpleNamespace(commit=lambda: None)
+    )
+    result = modal_runner.run_steer_tune("headline", buf.getvalue(), {}, payload, info)
+    assert result["steps"] == {"steer-tune": exit_code}
+    assert (tmp_path / "volume/steering/A2/headline.pt").exists() == (exit_code == 0)
+    run = tmp_path / "volume/runs/A2__headline__steer-tune__fake"
+    assert (run / "summary.json").exists() and (
+        run / "steering/A2/headline.yaml"
+    ).exists()
+    assert json.loads((run / "STEER_UPLOAD.json").read_text()) == info

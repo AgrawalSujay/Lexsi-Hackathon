@@ -555,6 +555,19 @@ def main(argv: list[str] | None = None) -> int:
         "--specs", help="Original source split directory after relocating shard runs"
     )
     pairs.add_argument("--scenario-cap", type=int, default=200)
+    vectors = commands.add_parser("steer-vectors", help="Train-only A2 CAA vectors")
+    vectors.add_argument("--pairs", type=Path, required=True)
+    vectors.add_argument("--model", choices=("dev", "headline"), default="headline")
+    vectors.add_argument("--layers", default="10,14,18,22")
+    vectors.add_argument("--dry-run", action="store_true")
+    tuning = commands.add_parser(
+        "steer-tune", help="Six-point A2 dev grid with recorded A0"
+    )
+    tuning.add_argument("--pairs", type=Path, required=True)
+    tuning.add_argument("--model", choices=("dev", "headline"), default="headline")
+    tuning.add_argument("--dev-dir", type=Path, required=True)
+    tuning.add_argument("--baseline-snapshot", type=Path, required=True)
+    tuning.add_argument("--dry-run", action="store_true")
     train = commands.add_parser("train", help="A4 LoRA preference training")
     train.add_argument("--pairs", type=Path)
     train.add_argument("--arm", default="A4")
@@ -570,6 +583,31 @@ def main(argv: list[str] | None = None) -> int:
     for name in ("eval-external", "report"):
         commands.add_parser(name, help="not implemented yet")
     args = parser.parse_args(argv)
+    if args.command in ("steer-vectors", "steer-tune"):
+        try:
+            if args.command == "steer-vectors":
+                from turnguard.arms.steer import build_vectors, parse_layers
+
+                report = build_vectors(
+                    args.pairs,
+                    model=args.model,
+                    layers=parse_layers(args.layers),
+                    dry_run=args.dry_run,
+                )
+            else:
+                from turnguard.arms.steer_tune import tune
+
+                report = tune(
+                    args.pairs,
+                    args.dev_dir,
+                    args.baseline_snapshot,
+                    model=args.model,
+                    dry_run=args.dry_run,
+                )
+        except (ValueError, OSError, KeyError, ImportError) as error:
+            parser.error(str(error))
+        print(json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False))
+        return 0
     if args.command == "build-pairs":
         from turnguard.data.pairs import build_pairs
 

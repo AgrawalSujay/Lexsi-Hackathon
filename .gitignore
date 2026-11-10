@@ -40,3 +40,6 @@ prompts/
 
 # A4 adapters and tokenizer/config exports.
 /adapters/
+
+# Extracted A2 vectors and provenance exports.
+/steering/

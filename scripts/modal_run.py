@@ -42,7 +42,7 @@ import modal
 ROOT = Path(__file__).resolve().parents[1]
 CHECKPOINT_ROOT = Path("/cache/checkpoints")  # on the persistent volume
 GPU_CHOICES = ("L40S", "A100-80GB", "H100")
-TASKS = ("smoke", "examples", "probe", "all", "split", "train-a4")
+TASKS = ("smoke", "examples", "probe", "all", "split", "train-a4", "steer-tune")
 SPLITS = ("train", "dev", "test", "test_cueflip")
 
 
@@ -198,13 +198,13 @@ def _steps(
     return steps
 
 
-def _split_upload(split: str) -> tuple[bytes, dict]:
+def _split_upload(split: str, directory: Path | None = None) -> tuple[bytes, dict]:
     """Snapshot every release file; transport checksums also cover mutable dev."""
     from turnguard.data.loaders import load_split, split_fingerprint
 
     if split not in SPLITS:
         raise ValueError(f"Unsupported split: {split}")
-    directory = ROOT / "data/v1" / split
+    directory = Path(directory) if directory else ROOT / "data/v1" / split
     before = split_fingerprint(directory)
     load_split(split, purpose="eval", directory=directory)
     buffer = io.BytesIO()
@@ -335,6 +335,116 @@ def _unpack_pairs(payload: bytes, info: dict, work: Path) -> Path:
     load_training_pairs(directory)
     (work / "PAIRS_UPLOAD.json").write_text(json.dumps(info, indent=2) + "\n")
     return directory
+
+
+def _tune_upload(pairs: str, dev_dir: str, baseline_run: str, model: str):
+    from turnguard.arms.steer_tune import BASELINE_RUN, prepare_baseline
+    from turnguard.config import load_config
+
+    dev = Path(dev_dir) if dev_dir else ROOT / "data/v1/dev"
+    baseline = Path(baseline_run) if baseline_run else ROOT / "runs" / BASELINE_RUN
+    model_id = load_config(ROOT / "configs/models.yaml")["models"][model]
+    snapshot = prepare_baseline(dev, baseline, model_id)
+    pair_bytes, pair_info = _pairs_upload(pairs or None)
+    dev_bytes, dev_info = _split_upload("dev", dev)
+    if snapshot["dataset"] != dev_info["dataset"]:
+        raise ValueError("Dev changed after A0 verification")
+    contents = {
+        "pairs.tar.gz": pair_bytes,
+        "dev.tar.gz": dev_bytes,
+        "baseline.json": json.dumps(snapshot, ensure_ascii=False).encode(),
+    }
+    info = {
+        "pairs": pair_info,
+        "dev": dev_info,
+        "files": {
+            name: hashlib.sha256(value).hexdigest() for name, value in contents.items()
+        },
+    }
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
+        for name, value in contents.items():
+            member = tarfile.TarInfo(name)
+            member.size = len(value)
+            archive.addfile(member, io.BytesIO(value))
+    return buffer.getvalue(), info
+
+
+def _unpack_tune(payload: bytes, info: dict, work: Path):
+    contents = {}
+    with tarfile.open(fileobj=io.BytesIO(payload)) as archive:
+        for member in archive.getmembers():
+            if (
+                not member.isfile()
+                or member.name not in ("pairs.tar.gz", "dev.tar.gz", "baseline.json")
+                or member.name in contents
+            ):
+                raise ValueError("Invalid tuning archive member")
+            contents[member.name] = archive.extractfile(member).read()
+    actual = {
+        name: hashlib.sha256(value).hexdigest() for name, value in contents.items()
+    }
+    if actual != info["files"] or set(actual) != {
+        "pairs.tar.gz",
+        "dev.tar.gz",
+        "baseline.json",
+    }:
+        raise ValueError("Uploaded tuning checksum mismatch")
+    _unpack_pairs(contents["pairs.tar.gz"], info["pairs"], work)
+    _unpack_split(contents["dev.tar.gz"], info["dev"], work)
+    (work / "baseline.json").write_bytes(contents["baseline.json"])
+    (work / "STEER_UPLOAD.json").write_text(json.dumps(info, indent=2) + "\n")
+
+
+@app.function(
+    gpu="L40S",
+    volumes={"/cache": cache},
+    secrets=[modal.Secret.from_name("huggingface")],
+    timeout=6 * 60 * 60,
+)
+def run_steer_tune(
+    model: str, source: bytes, build_info: dict, payload: bytes, info: dict
+):
+    work = Path(tempfile.mkdtemp(prefix="turnguard-steer-"))
+    with tarfile.open(fileobj=io.BytesIO(source)) as archive:
+        archive.extractall(work, filter="data")
+    (work / "BUILD_INFO.json").write_text(json.dumps(build_info, indent=2) + "\n")
+    sys.path.insert(0, str(work))
+    _unpack_tune(payload, info, work)
+    command = [
+        "python",
+        "-m",
+        "turnguard",
+        "steer-tune",
+        "--model",
+        model,
+        "--pairs",
+        "data/pairs/train",
+        "--dev-dir",
+        "data/v1/dev",
+        "--baseline-snapshot",
+        "baseline.json",
+    ]
+    code = None
+    try:
+        code = subprocess.run(command, cwd=work).returncode
+    finally:
+        runs, steering = work / "runs", work / "steering"
+        if runs.exists():
+            for run in runs.glob("*steer-tune*"):
+                if steering.exists():
+                    shutil.copytree(steering, run / "steering", dirs_exist_ok=True)
+                shutil.copyfile(work / "STEER_UPLOAD.json", run / "STEER_UPLOAD.json")
+            shutil.copytree(runs, "/cache/runs", dirs_exist_ok=True)
+        if code == 0 and steering.exists():
+            shutil.copytree(steering, "/cache/steering", dirs_exist_ok=True)
+        cache.commit()
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
+        for name in ("runs", "steering"):
+            if (work / name).exists():
+                archive.add(work / name, arcname=name)
+    return {"steps": {"steer-tune": code}, "runs_tar": buffer.getvalue()}
 
 
 def _print_split_metrics(runs: Path) -> None:
@@ -483,6 +593,8 @@ def main(
     smoke: bool = False,
     arm: str = "A0",
     adapter_run: str = "",
+    dev_dir: str = "",
+    baseline_run: str = "",
 ) -> None:
     if task not in TASKS:
         raise SystemExit(f"--task must be one of {', '.join(TASKS)}")
@@ -509,14 +621,30 @@ def main(
     split_payload, split_info = _split_upload(split) if task == "split" else (b"", None)
     if task == "train-a4":
         split_payload, split_info = _pairs_upload(pairs or None)
+    if task == "steer-tune":
+        split_payload, split_info = _tune_upload(pairs, dev_dir, baseline_run, model)
     batch_size = load_config(ROOT / "configs/models.yaml")["inference"]["batch_size"]
     source, info = _source_archive()
     if info["working_tree_had_uncommitted_changes"]:
         print("warning: uncommitted changes exist and are NOT sent to Modal")
     print(f"Running {task} on {gpu} with {model} at commit {info['git_commit'][:7]}")
     remote_options = {"gpu": gpu}
-    if task == "train-a4":
+    if task in ("train-a4", "steer-tune"):
         remote_options["timeout"] = 6 * 60 * 60
+    if task == "steer-tune":
+        remote = run_steer_tune.with_options(**remote_options)
+        args = (model, source, info, split_payload, split_info)
+        if background:
+            call = remote.spawn(*args)
+            print(f"Started steering grid in the background: {call.object_id}")
+            print("Fetch: modal volume ls turnguard-hf-cache runs")
+            return
+        result = remote.remote(*args)
+        with tarfile.open(fileobj=io.BytesIO(result["runs_tar"])) as archive:
+            archive.extractall(ROOT, filter="data")
+        if result["steps"]["steer-tune"]:
+            raise SystemExit(1)
+        return
     if background:
         # With `modal run --detach`, spawn() lets this terminal exit at once
         # (Ctrl+C or a closed laptop can no longer cancel the GPU job). Results
