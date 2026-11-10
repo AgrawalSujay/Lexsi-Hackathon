@@ -1,6 +1,7 @@
 """CPU-only Global-MMLU tests; tiny fixtures, no datasets or model downloads."""
 
 import copy
+import hashlib
 import json
 import socket
 import sys
@@ -329,6 +330,13 @@ def test_cli_hf_generator_short_limit_config_artifacts_and_a1(
     assert all(
         request.messages[0]["content"] == "Exact defence text"
         for request in requests[-4:]
+    )
+
+    a1_run = next((tmp_path / "runs").glob("A1__*"))
+    a1_config = yaml.safe_load((a1_run / "config.yaml").read_text())
+    assert (
+        a1_config["arm_system_prompt_sha256"]
+        == hashlib.sha256(b"Exact defence text").hexdigest()
     )
 
 

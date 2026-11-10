@@ -1,5 +1,6 @@
 """Resolve one arm configuration for agent and plain-chat evaluations alike."""
 
+import hashlib
 import importlib
 from dataclasses import dataclass, field
 from typing import Any
@@ -12,6 +13,15 @@ class ArmConfig:
     intervention_factory: str | None = None
     intervention_kwargs: dict = field(default_factory=dict)
     adapter: str | None = None
+
+    @property
+    def system_prompt_sha256(self) -> str | None:
+        """Hash the exact configured addition, separately from the base protocol."""
+        return (
+            hashlib.sha256(self.system_prompt.encode("utf-8")).hexdigest()
+            if self.system_prompt is not None
+            else None
+        )
 
     def apply(self, generator: Any) -> None:
         """Attach adapters first, then build the shared HF intervention context."""

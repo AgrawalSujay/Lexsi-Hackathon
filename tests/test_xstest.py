@@ -1,6 +1,7 @@
 """CPU-only XSTest fixtures: StubGenerator, three-class scoring, no downloads."""
 
 import copy
+import hashlib
 import os
 import socket
 import sys
@@ -408,6 +409,13 @@ def test_cli_artifacts_plain_chat_and_no_unsafe_output(
         request.messages[0]["content"] == "Exact defence text" for request in calls[-2:]
     )
 
+    a1_run = next((tmp_path / "runs").glob("A1__*"))
+    a1_config = yaml.safe_load((a1_run / "config.yaml").read_text())
+    assert (
+        a1_config["arm_system_prompt_sha256"]
+        == hashlib.sha256(b"Exact defence text").hexdigest()
+    )
+
 
 def test_agent_cli_uses_same_arm_prompt(tmp_path, monkeypatch):
     import turnguard.cli as cli
@@ -470,5 +478,15 @@ def test_bad_setup_never_initializes_model(tmp_path, monkeypatch):
 
     monkeypatch.setattr("turnguard.cli.HFGenerator", forbidden)
     with pytest.raises(SystemExit):
-        main(["eval-xstest", "--model", "dev", "--arm", "A1", "--root", str(tmp_path)])
+        main(
+            [
+                "eval-xstest",
+                "--model",
+                "dev",
+                "--arm",
+                "unknown-arm",
+                "--root",
+                str(tmp_path),
+            ]
+        )
     assert not (tmp_path / "runs").exists()
