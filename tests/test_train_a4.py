@@ -243,7 +243,10 @@ def test_cli_wires_training_options(pair_root, monkeypatch, capsys):
     assert args[0][1]["smoke"] and args[0][1]["dry_run"]
 
 
-def test_gpu_api_contract_with_fake_modules_and_context_budget(pair_root, monkeypatch):
+@pytest.mark.parametrize("dtype", ["bf16", "fp16"])
+def test_gpu_api_contract_with_fake_modules_and_context_budget(
+    pair_root, monkeypatch, dtype
+):
     root, path, rows = pair_root
     captured = {}
 
@@ -309,6 +312,7 @@ def test_gpu_api_contract_with_fake_modules_and_context_budget(pair_root, monkey
     module(
         "torch",
         bfloat16="bf16",
+        float16="fp16",
         cuda=types.SimpleNamespace(
             is_available=lambda: True, is_bf16_supported=lambda: True
         ),
@@ -321,12 +325,20 @@ def test_gpu_api_contract_with_fake_modules_and_context_budget(pair_root, monkey
         load_tok=lambda name: FakeTokenizer(),
         load_model=lambda *a, **kw: Model(),
     )
-    cfg = harden.train_a4(path, root=root, dry_run=True)["config"]
+    cfg = harden.train_a4(
+        path,
+        root=root,
+        dry_run=True,
+        dtype=dtype,
+        model="dev" if dtype == "fp16" else "headline",
+    )["config"]
     trainer, _ = harden._gpu_trainer(cfg, rows[:18], rows[18:], root)
     args = captured["args"]
-    assert args["bf16"] and not args["fp16"]
+    assert args["bf16"] == (dtype == "bf16")
+    assert args["fp16"] == (dtype == "fp16")
     assert args["max_steps"] == -1 and args["gradient_accumulation_steps"] == 8
-    assert args["max_length"] == 4096 and args["beta"] == 0.1
+    assert args["max_length"] == (2048 if dtype == "fp16" else 4096)
+    assert args["beta"] == 0.1
     assert args["learning_rate"] == 5e-5 and args["warmup_steps"] == 0.1
     assert args["prediction_loss_only"] and not args["precompute_ref_log_probs"]
     assert captured["ref_model"] is None
@@ -339,7 +351,7 @@ def test_gpu_api_contract_with_fake_modules_and_context_budget(pair_root, monkey
     assert trainer.turnguard_tokenization["train"]["left_truncated_prompts"] == 18
     first = trainer.train_dataset[0]
     assert first["chosen_ids"] == [1, 2] and first["rejected_ids"] == [3, 4, 5]
-    assert len(first["prompt_ids"]) == 4093
+    assert len(first["prompt_ids"]) == args["max_length"] - 3
     assert first["prompt_ids"][-1] == 4199
     assert len(captured["train_dataset"][0]["prompt"]) == 2  # original messages
 
@@ -394,3 +406,30 @@ def test_training_resumes_from_checkpoint_dir(pair_root, tmp_path):
     assert seen["checkpoint_dir"] == str(checkpoints.resolve())
     assert seen["resume"] == str(done)
     assert result["resumed_from"] == str(done)
+
+
+def test_tiny_fp16_context_override_and_checkpoint_identity(pair_root):
+    root, path, _ = pair_root
+    cfg = harden.train_a4(path, root=root, model="dev", dtype="fp16", dry_run=True)[
+        "config"
+    ]
+    assert cfg["max_length"] == 2048
+    assert cfg["loss_scaling"] == "accelerate dynamic GradScaler"
+    cfg["checkpoint_dir"] = str(root / "checkpoint-portable")
+    harden._checkpoint_identity(cfg)
+    harden._checkpoint_identity({**cfg, "pairs": "/relocated/path"})
+    with pytest.raises(ValueError, match="settings differ"):
+        harden._checkpoint_identity({**cfg, "dtype": "bf16"})
+    overridden = harden.train_a4(
+        path, root=root, model="dev", dtype="fp16", max_length=1024, dry_run=True
+    )
+    assert overridden["config"]["max_length"] == 1024
+    result = harden.train_a4(
+        path,
+        root=root,
+        model="dev",
+        dtype="fp16",
+        run_root=root / "job",
+        trainer_factory=lambda *a: (FakeTrainer(*a), "fake"),
+    )
+    assert Path(result["run_dir"]).is_relative_to(root / "job/runs")

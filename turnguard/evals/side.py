@@ -19,7 +19,7 @@ from turnguard.data.teacher import PROMPT_VERSION
 from turnguard.evals import global_mmlu as mmlu
 from turnguard.evals import xstest
 from turnguard.metrics import rate
-from turnguard.models import HFGenerator
+from turnguard.models import HFGenerator, UnsupportedDtypeError
 from turnguard.runs import RunTimer, _environment, new_run_dir
 from turnguard.schema import canonical_json
 
@@ -236,6 +236,8 @@ def generate_side(
         )
         timer.finish(out)
         _atomic(out / "manifest.json", {"version": VERSION, "status": "failed"})
+        if isinstance(error, UnsupportedDtypeError):
+            raise UnsupportedDtypeError(str(error)) from None
         raise ValueError("Side generation failed; no raw responses printed") from None
 
 

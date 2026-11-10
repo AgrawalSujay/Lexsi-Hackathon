@@ -104,6 +104,7 @@ def _run(args: argparse.Namespace) -> int:
             max_new_tokens=decoding["max_new_tokens"],
             batch_size=batch_size,
             seed=config["seed"],
+            **({"dtype": args.dtype} if args.dtype is not None else {}),
         )
     arm_spec.apply(generator)
     decoding = config["decoding"]
@@ -133,6 +134,7 @@ def _run(args: argparse.Namespace) -> int:
         "arm_system_prompt_sha256": arm_spec.system_prompt_sha256,
         "split": args.split,
         "generator": args.generator,
+        "dtype": args.dtype,
         "model": generator.name,
         "system_extra": extra,
         "episode_paths": [str(path) for path in paths],
@@ -409,6 +411,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     run.add_argument("--generator", choices=("stub", "hf"), required=True)
     run.add_argument("--stub-script")
+    run.add_argument("--dtype", choices=("fp16", "bf16", "fp32"))
     run.add_argument("--limit", type=int, help="Total episodes before sharding")
     run.add_argument("--shard", help="One-based i/k; stable SHA256 partition by ID")
     run.add_argument("--batch-size", type=int, help="HF microbatch size")
@@ -592,6 +595,9 @@ def main(argv: list[str] | None = None) -> int:
     merging.add_argument("--output", type=Path)
     train = commands.add_parser("train", help="A4 LoRA preference training")
     train.add_argument("--pairs", type=Path)
+    train.add_argument("--dtype", choices=("fp16", "bf16", "fp32"), default="bf16")
+    train.add_argument("--max-length", type=int)
+    train.add_argument("--run-root", type=Path)
     train.add_argument("--arm", default="A4")
     train.add_argument("--smoke", action="store_true")
     train.add_argument("--dry-run", action="store_true")
@@ -688,6 +694,9 @@ def main(argv: list[str] | None = None) -> int:
                 dry_run=args.dry_run,
                 output=args.output,
                 checkpoint_dir=args.checkpoint_dir,
+                dtype=args.dtype,
+                max_length=args.max_length,
+                run_root=args.run_root,
             )
         except (ValueError, OSError, KeyError, ImportError) as error:
             parser.error(str(error))

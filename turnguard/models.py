@@ -52,6 +52,24 @@ class StubGenerator:
 STOP_STRINGS = ["\nTOOL RESULT", "\nUser:"]
 
 
+class UnsupportedDtypeError(ValueError):
+    """A safe-to-display precision preflight error, before model generation."""
+
+
+def validate_cuda_dtype(torch, dtype: str, *, require_cuda: bool = False) -> None:
+    """Reject unsupported bf16 before loading weights; fp16 uses CUDA loss scaling."""
+    if dtype not in ("fp16", "bf16", "fp32"):
+        raise ValueError("dtype must be fp16, bf16 or fp32")
+    if require_cuda and not torch.cuda.is_available():
+        raise ValueError("A4 requires a CUDA GPU; use --dry-run on CPU")
+    if dtype == "bf16" and (
+        not torch.cuda.is_available() or not torch.cuda.is_bf16_supported()
+    ):
+        raise UnsupportedDtypeError(
+            "bf16 is not supported on this GPU; use --dtype fp16 on T4"
+        )
+
+
 class HFGenerator:
     """Generate greedy continuations through SafeTune's shared model loaders."""
 
@@ -79,6 +97,8 @@ class HFGenerator:
             raise ImportError(
                 "HF generation requires the gpu extra: pip install -e '.[gpu]'"
             ) from error
+        if dtype is not None:
+            validate_cuda_dtype(torch, dtype)
         self.name = model_id
         self.max_new_tokens = max_new_tokens
         self.batch_size = batch_size

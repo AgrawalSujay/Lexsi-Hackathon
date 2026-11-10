@@ -14,6 +14,7 @@ import yaml
 
 from turnguard.config import load_config
 from turnguard.data.pairs import load_training_pairs
+from turnguard.models import validate_cuda_dtype
 from turnguard.protocol import Action, parse
 from turnguard.runs import RunTimer, new_run_dir
 
@@ -123,15 +124,21 @@ def _gpu_trainer(config: dict, train: list, held: list, run: Path):
     from safetune.runner.utils.model_utils import load_model, load_tok
     from transformers import set_seed
 
-    if not torch.cuda.is_available() or not torch.cuda.is_bf16_supported():
-        raise ValueError("A4 requires a bf16-capable CUDA GPU; use --dry-run on CPU")
+    validate_cuda_dtype(torch, config["dtype"], require_cuda=True)
     base, config_class, api = trainer_api()
     set_seed(1234)
     tok = load_tok(config["model_id"])
     tok.padding_side = "left"
     if tok.pad_token_id is None:
         tok.pad_token = tok.eos_token
-    model = load_model(config["model_id"], dtype=torch.bfloat16, device="cuda")
+    model = load_model(
+        config["model_id"],
+        dtype=getattr(
+            torch,
+            {"fp16": "float16", "bf16": "bfloat16", "fp32": "float32"}[config["dtype"]],
+        ),
+        device="cuda",
+    )
     model.config.use_cache = False
     targets = config["target_modules"]
     present = {name.rsplit(".", 1)[-1] for name, _ in model.named_modules()}
@@ -156,8 +163,8 @@ def _gpu_trainer(config: dict, train: list, held: list, run: Path):
         beta=config["beta"],
         num_train_epochs=config["epochs"],
         max_length=config["max_length"],
-        bf16=True,
-        fp16=False,
+        bf16=config["dtype"] == "bf16",
+        fp16=config["dtype"] == "fp16",
         gradient_checkpointing=config["gradient_checkpointing"],
         gradient_checkpointing_kwargs={"use_reentrant": False},
         per_device_train_batch_size=1,
@@ -227,6 +234,7 @@ def _gpu_trainer(config: dict, train: list, held: list, run: Path):
             raise ValueError(f"Trainer unexpectedly dropped {name} held-out pairs")
         trainer.eval_dataset[name] = budget(dataset, name)
     trainer.turnguard_tokenization = tokenization
+    (run / "tokenization.json").write_text(json.dumps(tokenization, indent=2) + "\n")
     logger.info("A4 context budgeting (completion tokens unchanged): %s", tokenization)
     return trainer, api
 
@@ -250,6 +258,46 @@ def latest_checkpoint(directory: str | Path | None) -> Path | None:
     return max(complete, key=lambda path: int(path.name.split("-")[-1]), default=None)
 
 
+def _checkpoint_identity(config: dict) -> None:
+    directory = config.get("checkpoint_dir")
+    if not directory:
+        return
+    directory = Path(directory)
+    identity = {
+        key: config[key]
+        for key in (
+            "model_id",
+            "pairs_sha256",
+            "dtype",
+            "max_length",
+            "rank",
+            "alpha",
+            "learning_rate",
+            "beta",
+            "epochs",
+            "warmup_ratio",
+            "smoke",
+            "seed",
+            "gradient_accumulation_steps",
+            "holdout_fraction",
+            "target_modules",
+        )
+    }
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / "turnguard_training.json"
+    if path.exists():
+        if json.loads(path.read_text()) != identity:
+            raise ValueError(
+                "Checkpoint inputs/settings differ; choose a new checkpoint directory"
+            )
+    else:
+        if list(directory.glob("checkpoint-*")):
+            logger.warning(
+                "Legacy checkpoint has no input identity; recording current settings"
+            )
+        path.write_text(json.dumps(identity, indent=2) + "\n")
+
+
 def train_a4(
     pairs: str | Path,
     *,
@@ -261,12 +309,19 @@ def train_a4(
     root: Path | None = None,
     trainer_factory=None,
     checkpoint_dir: str | Path | None = None,
+    dtype: str = "bf16",
+    max_length: int | None = None,
+    run_root: Path | None = None,
 ) -> dict:
     """Preflight data on CPU; construct/train a GPU trainer only when requested.
 
     With ``checkpoint_dir``, checkpoints are written there every ``save_steps``
     optimizer steps and training resumes from the newest complete one.
     """
+    if dtype not in ("fp16", "bf16", "fp32"):
+        raise ValueError("dtype must be fp16, bf16 or fp32")
+    if max_length is not None and max_length < 1:
+        raise ValueError("max_length must be positive")
     if arm != "A4":
         raise ValueError("Only A4 preference training is implemented")
     rows = load_training_pairs(pairs)  # Includes copied/renamed dev-data refusal.
@@ -286,6 +341,11 @@ def train_a4(
         target = target.with_name(target.name + "-smoke")
     config = {
         **settings,
+        "max_length": max_length
+        if max_length is not None
+        else settings.get("max_length_by_model", {}).get(model, settings["max_length"]),
+        "dtype": dtype,
+        "loss_scaling": "accelerate dynamic GradScaler" if dtype == "fp16" else None,
         "model_id": models[model],
         "arm": arm,
         "seed": 1234,
@@ -330,8 +390,9 @@ def train_a4(
         return report
     if target.exists():
         raise ValueError(f"Adapter output already exists; choose --output: {target}")
+    _checkpoint_identity(config)
     timer = RunTimer()
-    run = new_run_dir(arm, models[model], "train-a4", root=root)
+    run = new_run_dir(arm, models[model], "train-a4", root=run_root or root)
     (run / "config.yaml").write_text(yaml.safe_dump(config, sort_keys=False))
     (run / "pair_split.json").write_text(json.dumps(report, indent=2) + "\n")
     trainer = None

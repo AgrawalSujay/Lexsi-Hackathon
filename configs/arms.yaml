@@ -23,6 +23,7 @@ training:
     beta: 0.1
     epochs: 2
     max_length: 4096
+    max_length_by_model: {dev: 2048}
     gradient_checkpointing: true
     gradient_accumulation_steps: 8
     holdout_fraction: 0.05

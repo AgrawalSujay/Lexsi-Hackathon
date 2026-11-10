@@ -275,3 +275,17 @@ def test_explicit_fp16_reaches_safetune_without_bf16(dependencies):
     helpers.load_model.assert_called_once_with("tiny-aya", dtype=torch.float16)
     assert generator.dtype == "fp16"
     assert not hasattr(torch, "bfloat16")
+
+
+def test_bf16_rejected_on_t4_before_loading_weights(monkeypatch):
+    from turnguard.models import validate_cuda_dtype
+
+    torch = types.SimpleNamespace(
+        cuda=types.SimpleNamespace(
+            is_available=lambda: True,
+            is_bf16_supported=lambda: False,
+        )
+    )
+    with pytest.raises(ValueError, match="use --dtype fp16"):
+        validate_cuda_dtype(torch, "bf16")
+    validate_cuda_dtype(torch, "fp16", require_cuda=True)

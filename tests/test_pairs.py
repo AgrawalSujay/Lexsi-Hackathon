@@ -507,3 +507,29 @@ def test_regrading_reports_changed_relays_without_rewriting_sources(bank_root):
     assert report["regrading"]["relays_after"] == 1
     assert report["regrading"]["changes"][0]["episode_id"] == "synthesized"
     assert {p.name: p.read_bytes() for p in run.iterdir()} == before
+
+
+def test_tiny_downloaded_shards_build_same_pairs_after_relocation(bank_root):
+    specs, records, _ = fixture_episodes(bank_root)
+    for record in records:
+        record.model = "CohereLabs/tiny-aya-global"
+    # Both shards share the complete original source split, as the CLI records it.
+    one = save_run(bank_root, "tiny-shard-1", specs, records[::2])
+    two = save_run(bank_root, "tiny-shard-2", specs, records[1::2])
+    moved = bank_root / "downloaded"
+    moved.mkdir()
+    for run in (one, two):
+        shutil.move(str(run), moved / run.name)
+    source = bank_root / "originals/episodes.jsonl"
+    config = {
+        "split": "train",
+        "episode_paths": ["/kaggle/working/tg/data/v1/train/episodes.jsonl"],
+        "model": "CohereLabs/tiny-aya-global",
+        "dtype": "fp16",
+    }
+    # Per-episode spec hashes in records verify the relocated source content.
+    for run in moved.iterdir():
+        (run / "config.yaml").write_text(yaml.safe_dump(config))
+    summary = build_pairs(list(moved.iterdir()), root=bank_root, specs_path=source)
+    assert summary["pairs"] > 0
+    assert len(load_training_pairs(bank_root / "data/pairs/train")) == summary["pairs"]

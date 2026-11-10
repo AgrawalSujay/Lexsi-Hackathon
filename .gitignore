@@ -43,3 +43,6 @@ prompts/
 
 # Extracted A2 vectors and provenance exports.
 /steering/
+
+# Locally packaged Kaggle uploads.
+/turnguard_kaggle*.zip

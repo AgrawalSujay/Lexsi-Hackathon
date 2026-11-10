@@ -858,3 +858,8 @@ def test_side_task_is_generation_only_and_default_l40s(modal_runner, monkeypatch
     )
     modal_runner.main(task="eval-side", model="dev", arm="A1", background=True)
     assert calls[0][0] == "eval-side" and calls[0][-3:] == ("A1", None, None)
+
+
+def test_split_dtype_recorded(release, tmp_path):
+    run = run_split(release, tmp_path / "out", "--dtype", "fp16")
+    assert yaml.safe_load((run / "config.yaml").read_text())["dtype"] == "fp16"
