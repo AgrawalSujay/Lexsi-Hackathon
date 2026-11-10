@@ -14,7 +14,8 @@ training:
   A4:
     rank: 16
     alpha: 32
-    learning_rate: 5.0e-6
+    learning_rate: 5.0e-5
+    warmup_ratio: 0.1
     beta: 0.1
     epochs: 2
     max_length: 4096

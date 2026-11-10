@@ -99,9 +99,10 @@ def test_twenty_pair_fake_training_and_holdout_outputs(pair_root):
     assert (cfg["rank"], cfg["alpha"], cfg["learning_rate"], cfg["beta"]) == (
         16,
         32,
-        5e-6,
+        5e-5,
         0.1,
     )
+    assert cfg["warmup_ratio"] == 0.1
     assert cfg["epochs"] == 2 and cfg["max_length"] == 4096
     assert cfg["gradient_checkpointing"]
     assert result["reference"] == "adapter-disabled base"
@@ -326,6 +327,7 @@ def test_gpu_api_contract_with_fake_modules_and_context_budget(pair_root, monkey
     assert args["bf16"] and not args["fp16"]
     assert args["max_steps"] == -1 and args["gradient_accumulation_steps"] == 8
     assert args["max_length"] == 4096 and args["beta"] == 0.1
+    assert args["learning_rate"] == 5e-5 and args["warmup_ratio"] == 0.1
     assert args["prediction_loss_only"] and not args["precompute_ref_log_probs"]
     assert captured["ref_model"] is None
     assert (

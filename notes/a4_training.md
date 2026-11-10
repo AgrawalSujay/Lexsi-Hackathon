@@ -16,7 +16,9 @@ SafeTune, TRL and Torch were absent from the existing laptop venv (`pip show`), 
 
 ## Configuration and data handling
 
-`configs/arms.yaml` has `training.A4`: rank 16, alpha 32, learning_rate 5e-6, beta 0.1, epochs 2, max_length 4096, gradient_checkpointing true, gradient_accumulation_steps 8, holdout_fraction 0.05; target_modules q_proj/k_proj/v_proj/o_proj/gate_proj/up_proj/down_proj. Attention and MLP modules must actually exist. bf16 is required; training/eval batch size is 1, dropout 0, seed 1234, external reporting disabled.
+`configs/arms.yaml` has `training.A4`: rank 16, alpha 32, learning_rate 5e-5, warmup_ratio 0.1, beta 0.1, epochs 2, max_length 4096, gradient_checkpointing true, gradient_accumulation_steps 8, holdout_fraction 0.05; target_modules q_proj/k_proj/v_proj/o_proj/gate_proj/up_proj/down_proj. Attention and MLP modules must actually exist. bf16 is required; training/eval batch size is 1, dropout 0, seed 1234, external reporting disabled.
+
+The LoRA DPO learning rate is 5e-5, with linear warmup over the first 10% of optimizer steps; both values are passed explicitly to SafeTune’s CSTConfig.
 
 The pair loader rejects dev/validation/test material before optional GPU imports, including copied/renamed validation data. Original model-format messages remain conversational, rendered with the model tokenizer; no extra system prompt, response inversion or replacement dataset. Adapter output refuses an existing path.
 
@@ -68,4 +70,4 @@ Budget **1–3 hours on H100** (~$4–12 GPU) or **1.5–4 hours on A100-80GB** 
 
 ## Verification
 
-**738 passed, 19 subtests passed in 127.17 seconds**; focused trainer/Modal tests: 30 passed. Ruff check/format and git diff checks passed. Fake-only tests cover a 20-pair training/export, holdout determinism and kind stratification, exact prompt preservation, all configured LoRA/DPO settings, bf16/reference contract, 4096 budgeting without completion loss, separate FINAL/ACTION reward logs, missing-metric refusal, copied validation refusal, ten-step smoke, CLI wiring, upload integrity, background spawning, and adapter/log/checksum persistence. No tests use network or GPU. Actual CUDA compatibility, peak memory and throughput remain for the owner-run smoke.
+**738 passed, 19 subtests passed in 125.42 seconds**; focused trainer/Modal tests: 30 passed. Ruff check/format and git diff checks passed. Fake-only tests cover a 20-pair training/export, holdout determinism and kind stratification, exact prompt preservation, all configured LoRA/DPO settings, bf16/reference contract, 4096 budgeting without completion loss, separate FINAL/ACTION reward logs, missing-metric refusal, copied validation refusal, ten-step smoke, CLI wiring, upload integrity, background spawning, and adapter/log/checksum persistence. No tests use network or GPU. Actual CUDA compatibility, peak memory and throughput remain for the owner-run smoke.
