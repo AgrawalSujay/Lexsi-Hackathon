@@ -17,7 +17,8 @@ gpu = [
     "transformers>=5.15,<5.22",
     "accelerate",
     "peft",
-    "safetune",
+    "safetune==0.1.14",
+    "trl==1.14.2",
     "auditkit[transformers]",
 ]
 data = ["curatorkit[generation]", "detect-secrets>=1.4"]

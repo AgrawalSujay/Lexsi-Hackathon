@@ -552,9 +552,12 @@ def main(argv: list[str] | None = None) -> int:
         "--specs", help="Original source split directory after relocating shard runs"
     )
     pairs.add_argument("--scenario-cap", type=int, default=200)
-    train = commands.add_parser("train", help="not implemented yet")
+    train = commands.add_parser("train", help="A4 LoRA preference training")
     train.add_argument("--pairs", type=Path)
     train.add_argument("--arm", default="A4")
+    train.add_argument("--smoke", action="store_true")
+    train.add_argument("--dry-run", action="store_true")
+    train.add_argument("--output", type=Path)
     train.add_argument("--model", choices=("dev", "headline"), default="headline")
     for name in ("eval-external", "report"):
         commands.add_parser(name, help="not implemented yet")
@@ -575,12 +578,21 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False))
         return 0
     if args.command == "train" and args.pairs is not None:
-        from turnguard.data.pairs import load_training_pairs
+        from turnguard.arms.harden import train_a4
 
         try:
-            load_training_pairs(args.pairs)
-        except (ValueError, OSError, KeyError) as error:
+            report = train_a4(
+                args.pairs,
+                arm=args.arm,
+                model=args.model,
+                smoke=args.smoke,
+                dry_run=args.dry_run,
+                output=args.output,
+            )
+        except (ValueError, OSError, KeyError, ImportError) as error:
             parser.error(str(error))
+        print(json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False))
+        return 0
     if args.command in ("crosscheck", "drop-episodes"):
         try:
             if args.command == "crosscheck":

@@ -1,9 +1,27 @@
-# Both run-episodes and external evals use this schema. Non-A0 arms require
-# an explicit configuration; the arm implementations are currently stubs.
+# Shared inference arm schema; training settings are separate below.
+# A4 points to the headline adapter written by the training command.
 arms:
   A0: {system_prompt: null}
+  A4: {adapter: "adapters/A4/headline"}
 # A1: {system_prompt: "<the exact configured prompt defence>"}
 # A2/A3: {intervention_factory: "your.module:make_hook", intervention_kwargs: {...}}
 # A4/A5: {adapter: "<local adapter path or HF adapter ID>"}
 # Factory signature: make_hook(generator=<HFGenerator>, **kwargs) -> callable
 # returning a context manager, as expected by HFGenerator.intervention.
+
+# Training settings are separate from inference's arm schema.
+training:
+  A4:
+    rank: 16
+    alpha: 32
+    learning_rate: 5.0e-6
+    beta: 0.1
+    epochs: 2
+    max_length: 4096
+    gradient_checkpointing: true
+    gradient_accumulation_steps: 8
+    holdout_fraction: 0.05
+    target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
+    adapters:
+      headline: adapters/A4/headline
+      dev: adapters/A4/dev

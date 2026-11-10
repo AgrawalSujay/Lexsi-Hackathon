@@ -15,6 +15,8 @@ Usage (from the repo root):
     modal run scripts/modal_run.py --task probe      # the 28-episode probe
     modal run scripts/modal_run.py --task split --split dev --model headline
     modal run scripts/modal_run.py --task split --split dev --shard 1/3
+    modal run --detach scripts/modal_run.py --task train-a4 --gpu H100 --background
+    modal run scripts/modal_run.py --task train-a4 --gpu H100 --model dev --smoke
     modal run scripts/modal_run.py --task all        # smoke + examples + probe in one container
 
 Options: --model headline|dev (default headline), --gpu L40S|A100-80GB|H100 (default L40S).
@@ -38,7 +40,7 @@ import modal
 
 ROOT = Path(__file__).resolve().parents[1]
 GPU_CHOICES = ("L40S", "A100-80GB", "H100")
-TASKS = ("smoke", "examples", "probe", "all", "split")
+TASKS = ("smoke", "examples", "probe", "all", "split", "train-a4")
 SPLITS = ("train", "dev", "test", "test_cueflip")
 
 
@@ -109,7 +111,24 @@ def _steps(
     split: str = "dev",
     shard: str | None = None,
     batch_size: int = 8,
+    smoke: bool = False,
 ) -> list[tuple[str, list[str]]]:
+    if task == "train-a4":
+        command = [
+            "python",
+            "-m",
+            "turnguard",
+            "train",
+            "--arm",
+            "A4",
+            "--pairs",
+            "data/pairs/train",
+            "--model",
+            model,
+        ]
+        if smoke:
+            command.append("--smoke")
+        return [("train-a4", command)]
     if task == "split":
         command = [
             "python",
@@ -232,6 +251,62 @@ def _unpack_split(payload: bytes, info: dict, work: Path) -> Path:
     return directory
 
 
+def _pairs_upload(directory: str | Path | None = None) -> tuple[bytes, dict]:
+    """Snapshot training pairs independently of git archive, with every checksum."""
+    from turnguard.data.pairs import load_training_pairs
+
+    directory = Path(directory) if directory else ROOT / "data/pairs/train"
+    load_training_pairs(directory)
+    paths = sorted(directory.rglob("*"))
+    if any(path.is_symlink() for path in paths):
+        raise ValueError("Pairs contain a symlink")
+    contents = {
+        p.relative_to(directory).as_posix(): p.read_bytes()
+        for p in paths
+        if p.is_file()
+    }
+    hashes = {name: hashlib.sha256(data).hexdigest() for name, data in contents.items()}
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
+        for name, data in contents.items():
+            member = tarfile.TarInfo(name)
+            member.size = len(data)
+            archive.addfile(member, io.BytesIO(data))
+    after = {
+        p.relative_to(directory).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
+        for p in directory.rglob("*")
+        if p.is_file()
+    }
+    if after != hashes:
+        raise ValueError("Pairs changed during upload")
+    return buffer.getvalue(), {"split": "train", "files": hashes}
+
+
+def _unpack_pairs(payload: bytes, info: dict, work: Path) -> Path:
+    from turnguard.data.pairs import load_training_pairs
+
+    directory = work / "data/pairs/train"
+    if directory.exists():
+        shutil.rmtree(directory)
+    directory.mkdir(parents=True)
+    with tarfile.open(fileobj=io.BytesIO(payload)) as archive:
+        for member in archive.getmembers():
+            name = Path(member.name)
+            if not member.isfile() or name.is_absolute() or ".." in name.parts:
+                raise ValueError("Invalid pairs archive member")
+        archive.extractall(directory, filter="data")
+    hashes = {
+        p.relative_to(directory).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
+        for p in directory.rglob("*")
+        if p.is_file()
+    }
+    if info.get("split") != "train" or hashes != info["files"]:
+        raise ValueError("Uploaded pairs checksum mismatch")
+    load_training_pairs(directory)
+    (work / "PAIRS_UPLOAD.json").write_text(json.dumps(info, indent=2) + "\n")
+    return directory
+
+
 def _print_split_metrics(runs: Path) -> None:
     """Print only metrics, including all language cells; no raw generations."""
     for path in sorted(runs.glob("*/metrics.json")):
@@ -281,6 +356,7 @@ def run_task(
     split_info: dict | None = None,
     shard: str | None = None,
     batch_size: int = 8,
+    smoke: bool = False,
 ) -> dict:
     work = Path(tempfile.mkdtemp(prefix="turnguard-"))
     work.mkdir(parents=True, exist_ok=True)
@@ -292,6 +368,10 @@ def run_task(
         if split_info is None:
             raise ValueError("Split payload is required")
         _unpack_split(split_payload, split_info, work)
+    if task == "train-a4":
+        if split_info is None:
+            raise ValueError("Pairs payload is required")
+        _unpack_pairs(split_payload, split_info, work)
     results = {}
     try:
         for name, command in _steps(
@@ -300,6 +380,7 @@ def run_task(
             split=split_info["split"] if split_info else "dev",
             shard=shard,
             batch_size=batch_size,
+            smoke=smoke,
         ):
             print(f"\n===== {name} =====", flush=True)
             code = subprocess.run(command, cwd=work).returncode
@@ -312,6 +393,16 @@ def run_task(
         if runs.exists():
             # Also keep results on the Volume, in case the local client
             # disconnects before it receives them.
+            if task == "train-a4":
+                # Every job retains its own adapter beside its logs/checkpoints.
+                for run in runs.glob("*train-a4*"):
+                    if (work / "adapters").exists():
+                        shutil.copytree(
+                            work / "adapters", run / "adapters", dirs_exist_ok=True
+                        )
+                    shutil.copyfile(
+                        work / "PAIRS_UPLOAD.json", run / "PAIRS_UPLOAD.json"
+                    )
             shutil.copytree(runs, "/cache/runs", dirs_exist_ok=True)
         cache.commit()  # keep downloaded weights (and runs) for the next run
     if task == "split" and runs.exists():
@@ -320,6 +411,8 @@ def run_task(
     with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
         if runs.exists():
             archive.add(runs, arcname="runs")
+        if task == "train-a4" and (work / "adapters").exists():
+            archive.add(work / "adapters", arcname="adapters")
     return {"steps": results, "runs_tar": buffer.getvalue()}
 
 
@@ -331,6 +424,8 @@ def main(
     split: str = "dev",
     shard: str | None = None,
     background: bool = False,
+    pairs: str = "",
+    smoke: bool = False,
 ) -> None:
     if task not in TASKS:
         raise SystemExit(f"--task must be one of {', '.join(TASKS)}")
@@ -338,6 +433,10 @@ def main(
         raise SystemExit(f"--gpu must be one of {', '.join(GPU_CHOICES)}")
     if model not in ("headline", "dev"):
         raise SystemExit("--model must be headline or dev")
+    if task == "train-a4" and gpu not in ("A100-80GB", "H100"):
+        raise SystemExit("train-a4 requires --gpu A100-80GB or --gpu H100")
+    if smoke and task != "train-a4":
+        raise SystemExit("--smoke requires --task train-a4")
     from turnguard.config import load_config
     from turnguard.data.loaders import parse_shard
 
@@ -347,30 +446,43 @@ def main(
     if shard and task != "split":
         raise SystemExit("--shard requires --task split")
     split_payload, split_info = _split_upload(split) if task == "split" else (b"", None)
+    if task == "train-a4":
+        split_payload, split_info = _pairs_upload(pairs or None)
     batch_size = load_config(ROOT / "configs/models.yaml")["inference"]["batch_size"]
     source, info = _source_archive()
     if info["working_tree_had_uncommitted_changes"]:
         print("warning: uncommitted changes exist and are NOT sent to Modal")
     print(f"Running {task} on {gpu} with {model} at commit {info['git_commit'][:7]}")
+    remote_options = {"gpu": gpu}
+    if task == "train-a4":
+        remote_options["timeout"] = 6 * 60 * 60
     if background:
         # With `modal run --detach`, spawn() lets this terminal exit at once
         # (Ctrl+C or a closed laptop can no longer cancel the GPU job). Results
         # are copied to the volume's runs/ when the container finishes.
-        call = run_task.with_options(gpu=gpu).spawn(
-            task, model, source, info, split_payload, split_info, shard, batch_size
+        call = run_task.with_options(**remote_options).spawn(
+            task,
+            model,
+            source,
+            info,
+            split_payload,
+            split_info,
+            shard,
+            batch_size,
+            smoke,
         )
         print(f"Started in the background: {call.object_id}")
         print("Fetch when done: modal volume ls turnguard-hf-cache runs")
         return
-    result = run_task.with_options(gpu=gpu).remote(
-        task, model, source, info, split_payload, split_info, shard, batch_size
+    result = run_task.with_options(**remote_options).remote(
+        task, model, source, info, split_payload, split_info, shard, batch_size, smoke
     )
     with tarfile.open(fileobj=io.BytesIO(result["runs_tar"])) as archive:
         names = sorted(
             {
                 m.name.split("/")[1]
                 for m in archive.getmembers()
-                if m.name.count("/") >= 1
+                if m.name.startswith("runs/") and m.name.count("/") >= 1
             }
         )
         archive.extractall(ROOT, filter="data")

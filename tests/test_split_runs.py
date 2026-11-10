@@ -289,3 +289,128 @@ def test_limit_is_mixed_and_shards_keep_twins_together():
                 assert f"{s.id}-clean" in ids
     union = [s.id for i in (1, 2, 3) for s in select_episodes(specs, shard=f"{i}/3")]
     assert sorted(union) == sorted(s.id for s in specs)
+
+
+def training_pairs(tmp_path):
+    directory = tmp_path / "pairs"
+    directory.mkdir()
+    rows = [
+        dict(
+            id=str(i),
+            split="train",
+            validation_only=False,
+            prompt=[{"role": "user", "content": "Save code-1."}],
+            chosen='ACTION: {"tool":"save_note","args":{"text":"code-1"}}',
+            rejected="FINAL: Done.",
+        )
+        for i in range(2)
+    ]
+    (directory / "pairs.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
+    (directory / "summary.json").write_text(
+        json.dumps({"split": "train", "validation_only": False})
+    )
+    return directory
+
+
+def test_modal_train_upload_verified_before_training(tmp_path, modal_runner):
+    directory = training_pairs(tmp_path)
+    before = {p.name: p.read_bytes() for p in directory.iterdir()}
+    payload, info = modal_runner._pairs_upload(directory)
+    assert set(info["files"]) == {"pairs.jsonl", "summary.json"}
+    unpacked = modal_runner._unpack_pairs(payload, info, tmp_path / "remote")
+    assert (unpacked / "pairs.jsonl").read_bytes() == before["pairs.jsonl"]
+    bad = copy.deepcopy(info)
+    bad["files"]["pairs.jsonl"] = "0" * 64
+    with pytest.raises(ValueError, match="checksum mismatch"):
+        modal_runner._unpack_pairs(payload, bad, tmp_path / "bad")
+    assert {p.name: p.read_bytes() for p in directory.iterdir()} == before
+    (directory / "VALIDATION_ONLY").write_text("validation — never for training")
+    with pytest.raises(ValueError, match="never for training"):
+        modal_runner._pairs_upload(directory)
+
+
+def test_modal_train_background_and_smoke_command(tmp_path, modal_runner, monkeypatch):
+    directory = training_pairs(tmp_path)
+    [(name, command)] = modal_runner._steps("train-a4", "dev", smoke=True)
+    assert name == "train-a4" and "--smoke" in command
+    assert command[command.index("--pairs") + 1] == "data/pairs/train"
+    assert command[command.index("--arm") + 1] == "A4"
+    captured = []
+
+    class Remote:
+        def with_options(self, **kwargs):
+            assert kwargs == {"gpu": "H100", "timeout": 6 * 60 * 60}
+            return self
+
+        def spawn(self, *args):
+            captured.append(args)
+            return types.SimpleNamespace(object_id="fake-job")
+
+        def remote(self, *args):
+            pytest.fail("background must spawn")
+
+    monkeypatch.setattr(modal_runner, "run_task", Remote())
+    monkeypatch.setattr(
+        modal_runner,
+        "_source_archive",
+        lambda: (
+            b"source",
+            {"git_commit": "1234567", "working_tree_had_uncommitted_changes": False},
+        ),
+    )
+    modal_runner.main(
+        task="train-a4",
+        model="dev",
+        gpu="H100",
+        background=True,
+        pairs=str(directory),
+        smoke=True,
+    )
+    args = captured[0]
+    assert args[0] == "train-a4" and args[-1] is True
+    assert args[5]["files"]["pairs.jsonl"]
+    with pytest.raises(SystemExit, match="requires --gpu"):
+        modal_runner.main(task="train-a4", gpu="L40S")
+
+
+def test_modal_train_persists_adapter_logs_and_upload_checksums(
+    tmp_path, modal_runner, monkeypatch
+):
+    directory = training_pairs(tmp_path)
+    payload, info = modal_runner._pairs_upload(directory)
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w"):
+        pass
+
+    def run(command, cwd):
+        cwd = Path(cwd)
+        job = cwd / "runs/A4__headline__train-a4__fake"
+        job.mkdir(parents=True)
+        (job / "training_log.json").write_text("[]")
+        adapter = cwd / "adapters/A4/headline"
+        adapter.mkdir(parents=True)
+        (adapter / "adapter_model.safetensors").write_bytes(b"fake")
+        return types.SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(modal_runner.subprocess, "run", run)
+    original = modal_runner.shutil.copytree
+
+    def copytree(src, dst, *args, **kwargs):
+        if str(dst) == "/cache/runs":
+            dst = tmp_path / "volume/runs"
+        return original(src, dst, *args, **kwargs)
+
+    monkeypatch.setattr(modal_runner.shutil, "copytree", copytree)
+    monkeypatch.setattr(
+        modal_runner, "cache", types.SimpleNamespace(commit=lambda: None)
+    )
+    result = modal_runner.run_task(
+        "train-a4", "headline", buf.getvalue(), {}, payload, info
+    )
+    assert result["steps"] == {"train-a4": 0}
+    job = tmp_path / "volume/runs/A4__headline__train-a4__fake"
+    assert (job / "training_log.json").exists()
+    assert (job / "adapters/A4/headline/adapter_model.safetensors").exists()
+    assert json.loads((job / "PAIRS_UPLOAD.json").read_text()) == info
+    with tarfile.open(fileobj=io.BytesIO(result["runs_tar"])) as archive:
+        assert "adapters/A4/headline/adapter_model.safetensors" in archive.getnames()

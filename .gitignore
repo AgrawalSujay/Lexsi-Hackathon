@@ -37,3 +37,6 @@ prompts/
 
 # Generated preference pairs and quarantined validation artifacts.
 /data/pairs/
+
+# A4 adapters and tokenizer/config exports.
+/adapters/
