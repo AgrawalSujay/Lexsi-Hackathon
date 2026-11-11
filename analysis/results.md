@@ -15,13 +15,37 @@ Paired McNemar exact tests against A0 on identical episodes; CI = 95% scenario-c
 | Clean answer correct | 70.5% (287/407) | 75.9% (309/407)<br>Δ +5.4, p=0.005 | 80.6% (328/407)<br>Δ +10.1, p=4e-07 | 68.8% (280/407)<br>Δ -1.7, p=0.65 |
 | Malformed steps | 6.0% | 5.4% | 2.7% | 14.0% |
 
-ASR incl. relay by conversation language:
+### By conversation language (user turns)
 
-| conversation language | n | A0 | A1 | A2 | A4 |
-|---|---|---|---|---|---|
-| en | 143 | 33.6% | 37.8% | 32.2% | 0.0% |
-| hi | 133 | 30.1% | 31.6% | 24.1% | 2.3% |
-| hinglish | 131 | 32.1% | 40.5% | 35.9% | 5.3% |
+Rate per arm; p = paired McNemar exact test against A0 within that language.
+
+| Metric | Language | n | A0 baseline | A1 prompt defence | A2 steering (CAA) | A4 DPO (SafeTune) |
+|---|---|---|---|---|---|---|
+| ASR incl. relay ↓ | English | 143 | 33.6% | 37.8% (p=0.34) | 32.2% (p=0.86) | 0.0% (p=7e-15) |
+| ASR incl. relay ↓ | Hindi | 133 | 30.1% | 31.6% (p=0.85) | 24.1% (p=0.22) | 2.3% (p=1e-11) |
+| ASR incl. relay ↓ | Hinglish | 131 | 32.1% | 40.5% (p=0.04) | 35.9% (p=0.42) | 5.3% (p=6e-10) |
+| Clean task success ↑ | English | 143 | 28.7% | 32.2% (p=0.18) | 40.6% (p=2e-04) | 54.5% (p=4e-07) |
+| Clean task success ↑ | Hindi | 133 | 12.8% | 15.0% (p=0.55) | 24.1% (p=7e-04) | 50.4% (p=1e-11) |
+| Clean task success ↑ | Hinglish | 131 | 19.8% | 16.8% (p=0.29) | 21.4% (p=0.62) | 50.4% (p=9e-08) |
+| Authorized followed ↑ | English | 75 | 25.3% | 30.7% (p=0.29) | 22.7% (p=0.69) | 14.7% (p=0.13) |
+| Authorized followed ↑ | Hindi | 74 | 14.9% | 13.5% (p=1.00) | 20.3% (p=0.22) | 33.8% (p=0.02) |
+| Authorized followed ↑ | Hinglish | 80 | 16.2% | 17.5% (p=1.00) | 18.8% (p=0.75) | 25.0% (p=0.25) |
+
+### By injected-text language
+
+Rate per arm; p = paired McNemar exact test against A0 within that language.
+
+| Metric | Language | n | A0 baseline | A1 prompt defence | A2 steering (CAA) | A4 DPO (SafeTune) |
+|---|---|---|---|---|---|---|
+| ASR incl. relay ↓ | English | 145 | 33.1% | 36.6% (p=0.49) | 33.1% (p=1.00) | 2.8% (p=1e-13) |
+| ASR incl. relay ↓ | Hindi | 135 | 34.1% | 42.2% (p=0.05) | 31.1% (p=0.61) | 1.5% (p=1e-13) |
+| ASR incl. relay ↓ | Hinglish | 127 | 28.3% | 30.7% (p=0.65) | 27.6% (p=1.00) | 3.1% (p=4e-09) |
+| Clean task success ↑ | English | 145 | 19.3% | 20.7% (p=0.77) | 27.6% (p=0.004) | 46.9% (p=2e-07) |
+| Clean task success ↑ | Hindi | 135 | 21.5% | 19.3% (p=0.51) | 30.4% (p=0.004) | 54.8% (p=2e-10) |
+| Clean task success ↑ | Hinglish | 127 | 21.3% | 25.2% (p=0.12) | 29.1% (p=0.006) | 54.3% (p=2e-08) |
+| Authorized followed ↑ | English | 72 | 22.2% | 19.4% (p=0.75) | 27.8% (p=0.34) | 30.6% (p=0.34) |
+| Authorized followed ↑ | Hindi | 80 | 18.8% | 21.2% (p=0.69) | 17.5% (p=1.00) | 22.5% (p=0.72) |
+| Authorized followed ↑ | Hinglish | 77 | 15.6% | 20.8% (p=0.29) | 16.9% (p=1.00) | 20.8% (p=0.50) |
 
 ASR incl. relay by attack goal:
 
@@ -57,13 +81,37 @@ ASR incl. relay by injection style:
 | Clean answer correct | 76.6% (82/107) | 79.4% (85/107)<br>Δ +2.8, p=0.63 | 85.0% (91/107)<br>Δ +8.4, p=0.05 | 63.6% (68/107)<br>Δ -13.1, p=0.06 |
 | Malformed steps | 9.0% | 6.9% | 4.1% | 14.2% |
 
-ASR incl. relay by conversation language:
+### By conversation language (user turns)
 
-| conversation language | n | A0 | A1 | A2 | A4 |
-|---|---|---|---|---|---|
-| en | 39 | 35.9% | 41.0% | 38.5% | 2.6% |
-| hi | 32 | 28.1% | 31.2% | 28.1% | 3.1% |
-| hinglish | 36 | 30.6% | 27.8% | 36.1% | 8.3% |
+Rate per arm; p = paired McNemar exact test against A0 within that language.
+
+| Metric | Language | n | A0 baseline | A1 prompt defence | A2 steering (CAA) | A4 DPO (SafeTune) |
+|---|---|---|---|---|---|---|
+| ASR incl. relay ↓ | English | 39 | 35.9% | 41.0% (p=0.69) | 38.5% (p=1.00) | 2.6% (p=1e-03) |
+| ASR incl. relay ↓ | Hindi | 32 | 28.1% | 31.2% (p=1.00) | 28.1% (p=1.00) | 3.1% (p=0.008) |
+| ASR incl. relay ↓ | Hinglish | 36 | 30.6% | 27.8% (p=1.00) | 36.1% (p=0.69) | 8.3% (p=0.008) |
+| Clean task success ↑ | English | 39 | 15.4% | 23.1% (p=0.38) | 25.6% (p=0.22) | 43.6% (p=0.02) |
+| Clean task success ↑ | Hindi | 32 | 12.5% | 15.6% (p=1.00) | 25.0% (p=0.12) | 43.8% (p=0.006) |
+| Clean task success ↑ | Hinglish | 36 | 19.4% | 22.2% (p=1.00) | 19.4% (p=1.00) | 52.8% (p=0.01) |
+| Authorized followed ↑ | English | 17 | 0.0% | 29.4% (p=0.06) | 23.5% (p=0.12) | 11.8% (p=0.50) |
+| Authorized followed ↑ | Hindi | 21 | 23.8% | 28.6% (p=1.00) | 28.6% (p=1.00) | 14.3% (p=0.69) |
+| Authorized followed ↑ | Hinglish | 18 | 33.3% | 22.2% (p=0.69) | 33.3% (p=1.00) | 44.4% (p=0.69) |
+
+### By injected-text language
+
+Rate per arm; p = paired McNemar exact test against A0 within that language.
+
+| Metric | Language | n | A0 baseline | A1 prompt defence | A2 steering (CAA) | A4 DPO (SafeTune) |
+|---|---|---|---|---|---|---|
+| ASR incl. relay ↓ | English | 39 | 35.9% | 41.0% (p=0.69) | 38.5% (p=1.00) | 2.6% (p=1e-03) |
+| ASR incl. relay ↓ | Hindi | 32 | 28.1% | 31.2% (p=1.00) | 28.1% (p=1.00) | 3.1% (p=0.008) |
+| ASR incl. relay ↓ | Hinglish | 36 | 30.6% | 27.8% (p=1.00) | 36.1% (p=0.69) | 8.3% (p=0.008) |
+| Clean task success ↑ | English | 39 | 15.4% | 23.1% (p=0.38) | 25.6% (p=0.22) | 43.6% (p=0.02) |
+| Clean task success ↑ | Hindi | 32 | 12.5% | 15.6% (p=1.00) | 25.0% (p=0.12) | 43.8% (p=0.006) |
+| Clean task success ↑ | Hinglish | 36 | 19.4% | 22.2% (p=1.00) | 19.4% (p=1.00) | 52.8% (p=0.01) |
+| Authorized followed ↑ | English | 20 | 40.0% | 25.0% (p=0.38) | 40.0% (p=1.00) | 35.0% (p=1.00) |
+| Authorized followed ↑ | Hindi | 19 | 5.3% | 36.8% (p=0.03) | 21.1% (p=0.38) | 26.3% (p=0.12) |
+| Authorized followed ↑ | Hinglish | 17 | 11.8% | 17.6% (p=1.00) | 23.5% (p=0.50) | 5.9% (p=1.00) |
 
 ASR incl. relay by attack goal:
 

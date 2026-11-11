@@ -13,6 +13,7 @@ import argparse
 import collections
 import glob
 import json
+import math
 import random
 import sys
 from pathlib import Path
@@ -113,6 +114,43 @@ def breakdown(eps, field):
     return {k: (sum(v) / len(v), len(v)) for k, v in sorted(rows.items())}
 
 
+LANG_ROWS = (
+    ("injected", "ASR incl. relay ↓"),
+    ("clean", "Clean task success ↑"),
+    ("authorized", "Authorized followed ↑"),
+)
+
+
+def mcnemar_p(pairs):
+    """Exact two-sided McNemar p-value from (base, other) boolean pairs."""
+    b = sum(1 for x, y in pairs if x and not y)
+    c = sum(1 for x, y in pairs if y and not x)
+    n = b + c
+    if n == 0:
+        return 1.0
+    tail = sum(math.comb(n, i) for i in range(min(b, c) + 1)) / 2**n
+    return min(1.0, 2 * tail)
+
+
+def by_language(base, eps, field):
+    """Per-language rate of each episode type's metric, with paired p vs A0."""
+    out = {}
+    for kind, _ in LANG_ROWS:
+        groups = collections.defaultdict(list)
+        for key, ep in base.items():
+            if ep["type"] == kind and key in eps:
+                groups[ep[field]].append((ep["value"], eps[key]["value"]))
+        out[kind] = {
+            lang: {
+                "n": len(pairs),
+                "rate": sum(y for _, y in pairs) / len(pairs),
+                "p": mcnemar_p(pairs),
+            }
+            for lang, pairs in sorted(groups.items())
+        }
+    return out
+
+
 def pct(x):
     return "—" if x is None else f"{100 * x:.1f}%"
 
@@ -181,6 +219,10 @@ def collect(args):
                     arm_out["metrics"][key]["scenario_ci"] = ci
                     arm_out["metrics"][key]["scenarios"] = n
             split_out["arms"][arm] = arm_out
+            split_out.setdefault("by_language", {})[arm] = {
+                field: by_language(base_eps, eps, field)
+                for field in ("conversation_lang", "injection_lang")
+            }
             split_out["breakdowns"][arm] = {
                 f: breakdown(eps, f)
                 for f in (
@@ -268,8 +310,39 @@ def write_markdown(results, out):
             + " | ".join(pct(data["arms"][a]["malformed_rate"]) for a in arms)
             + " |"
         )
+        lang_names = {"en": "English", "hi": "Hindi", "hinglish": "Hinglish"}
         for field, title in (
-            ("conversation_lang", "conversation language"),
+            ("conversation_lang", "conversation language (user turns)"),
+            ("injection_lang", "injected-text language"),
+        ):
+            lines += [
+                "",
+                f"### By {title}",
+                "",
+                "Rate per arm; p = paired McNemar exact test against A0 within "
+                "that language.",
+                "",
+                "| Metric | Language | n | "
+                + " | ".join(NAMES[a] for a in arms)
+                + " |",
+                "|---|---|---|" + "---|" * len(arms),
+            ]
+            table = {a: data["by_language"][a][field] for a in arms}
+            for kind, label in LANG_ROWS:
+                for lang, row in table["A0"][kind].items():
+                    cells = []
+                    for a in arms:
+                        r = table[a][kind][lang]
+                        cell = pct(r["rate"])
+                        if a != "A0":
+                            cell += f" (p={fmt_p(r['p'])})"
+                        cells.append(cell)
+                    lines.append(
+                        f"| {label} | {lang_names.get(lang, lang)} | {row['n']} | "
+                        + " | ".join(cells)
+                        + " |"
+                    )
+        for field, title in (
             ("goal", "attack goal"),
             ("style", "injection style"),
         ):
@@ -466,10 +539,7 @@ def figures(results, out):
         plt.close(fig)
 
         # 3. ASR by attack goal and by conversation language on test.
-        for field, fname, title in (
-            ("goal", "fig_by_goal.png", "attack goal"),
-            ("conversation_lang", "fig_by_language.png", "conversation language"),
-        ):
+        for field, fname, title in (("goal", "fig_by_goal.png", "attack goal"),):
             arms = list(test["arms"])
             cats = list(test["breakdowns"]["A0"][field])
             fig, ax = plt.subplots(figsize=(1.3 * len(cats) + 2.5, 3.6))
@@ -513,6 +583,56 @@ def figures(results, out):
             fig.tight_layout()
             fig.savefig(out / fname, dpi=200)
             plt.close(fig)
+
+    # 3b. Every headline metric per conversation language, test and cue-flip.
+    lang_names = {"en": "English", "hi": "Hindi", "hinglish": "Hinglish"}
+    for split, data in results["splits"].items():
+        arms = list(data["arms"])
+        fig, axes = plt.subplots(1, 3, figsize=(12, 3.8), sharey=True)
+        for ax, (kind, label) in zip(axes, LANG_ROWS):
+            langs = list(data["by_language"]["A0"]["conversation_lang"][kind])
+            width = 0.8 / len(arms)
+            for j, arm in enumerate(arms):
+                rows = data["by_language"][arm]["conversation_lang"][kind]
+                vals = [100 * rows[lang]["rate"] for lang in langs]
+                xs = [i + (j - (len(arms) - 1) / 2) * width for i in range(len(langs))]
+                ax.bar(
+                    xs,
+                    vals,
+                    width=width,
+                    color=COLORS[arm],
+                    edgecolor="#fcfcfb",
+                    linewidth=2,
+                    label=NAMES[arm],
+                )
+                for xx, v in zip(xs, vals):
+                    ax.text(
+                        xx,
+                        v + 1,
+                        f"{v:.0f}",
+                        ha="center",
+                        va="bottom",
+                        fontsize=7,
+                        color=ink,
+                    )
+            ns = data["by_language"]["A0"]["conversation_lang"][kind]
+            ax.set_xticks(
+                range(len(langs)),
+                [f"{lang_names.get(x, x)}\n(n={ns[x]['n']})" for x in langs],
+            )
+            ax.set_title(label, color=ink)
+            ax.grid(axis="x", visible=False)
+        axes[0].set_ylabel("%")
+        axes[0].set_ylim(0, 70)
+        handles, labels = axes[0].get_legend_handles_labels()
+        fig.legend(handles, labels, loc="lower center", ncol=len(arms), frameon=False)
+        fig.suptitle(f"By conversation language, {SPLIT_NAMES[split]}", color=ink)
+        fig.tight_layout(rect=(0, 0.08, 1, 1))
+        name = (
+            "fig_by_language.png" if split == "test" else f"fig_by_language_{split}.png"
+        )
+        fig.savefig(out / name, dpi=200)
+        plt.close(fig)
 
     # 4. Hindi/English MMLU strict vs lenient.
     side = results["side"]
