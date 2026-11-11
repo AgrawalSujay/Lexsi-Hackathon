@@ -44,6 +44,7 @@ def merge_grid_runs(
         "protocol_version",
     )
     count = None
+    commits = {}
     for path in paths:
         report = json.loads((path / "summary.json").read_text())
         if report["model_id"] != report["vector"].get("model_id") or report[
@@ -52,6 +53,9 @@ def merge_grid_runs(
             raise ValueError("Grid shard has different extraction model input")
         identity = {key: report[key] for key in common}
         identity["extraction"] = extraction_inputs(report["vector"])
+        # Shards may run at different commits; the steering code must not differ
+        # (checked by the operator with git diff) and each commit is recorded.
+        commits[path.name] = identity["extraction"].pop("code_commit")
         if reference is None:
             reference = identity
         elif identity != reference:
@@ -79,7 +83,9 @@ def merge_grid_runs(
             or digest != sidecar["vector_sha256"]
         ):
             raise ValueError("Shard vector checksum mismatch")
-        if extraction_inputs(sidecar) != identity["extraction"]:
+        sidecar_inputs = extraction_inputs(sidecar)
+        sidecar_inputs.pop("code_commit")
+        if sidecar_inputs != identity["extraction"]:
             raise ValueError("Shard sidecar input provenance differs")
         for point in report["points"]:
             if point["vector_sha256"] != digest:
@@ -123,6 +129,7 @@ def merge_grid_runs(
         "vector_source_run": chosen["source_run"],
         "vector_sha256": chosen["vector_sha256"],
         "source_runs": [str(p) for p in paths],
+        "shard_code_commits": commits,
     }
     (output / "summary.json").write_text(json.dumps(result, indent=2) + "\n")
     timer.finish(output)

@@ -137,10 +137,16 @@ def test_commit_missing_revision_incomplete_and_duplicate_points_refused(tmp_pat
     with pytest.raises(ValueError, match="Duplicate grid run"):
         merge_grid_runs([paths[0], paths[0]], output=tmp_path / "duplicate")
     report = json.loads((paths[1] / "summary.json").read_text())
+    original = json.dumps(report)
     report["vector"]["environment"]["git_commit"] = "other-code"
     (paths[1] / "summary.json").write_text(json.dumps(report))
+    merged = merge_grid_runs(paths, output=tmp_path / "code")
+    assert merged["shard_code_commits"][paths[1].name] == "other-code"
+    report = json.loads(original)
+    report["vector"]["pairs_sha256"] = "other-pairs"
+    (paths[1] / "summary.json").write_text(json.dumps(report))
     with pytest.raises(ValueError, match="different extraction"):
-        merge_grid_runs(paths, output=tmp_path / "code")
+        merge_grid_runs(paths, output=tmp_path / "pairs")
     report["vector"]["model_revision"] = None
     with pytest.raises(ValueError, match="Missing extraction input"):
         extraction_inputs(report["vector"])
