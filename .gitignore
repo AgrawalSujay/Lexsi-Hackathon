@@ -46,3 +46,7 @@ prompts/
 
 # Locally packaged Kaggle uploads.
 /turnguard_kaggle*.zip
+hf_staging*/
+*.log
+/data/old*/
+/data/v1/dev_smoke_*/
