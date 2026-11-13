@@ -197,6 +197,10 @@ def main():
             w: rate([e["p_field"] for e in sel(split, "injected", where=w)], T)
             for w in ("state", "user_turn")
         }
+        block["false_alarm_clean_by_lang"] = {
+            v: rate([e["p_field"] for e in cln if e["conv"] == v], T)
+            for v in sorted({e["conv"] for e in cln})
+        }
         block["false_block_authorized_by_lang"] = {
             v: rate([e["p_field"] for e in aut if e["lang"] == v], T)
             for v in sorted({e["lang"] for e in aut})
@@ -221,6 +225,8 @@ def main():
                f"| False blocks on authorized instructions | {pct(b['false_block_authorized'])} |", ""]
         for dim in ("lang", "style", "goal", "where"):
             md += [f"Detection by {dim}: " + "; ".join(f"{k} {pct(v)}" for k, v in b[f"detection_by_{dim}"].items()), ""]
+        for key, label in (("false_alarm_clean_by_lang", "False alarms (clean) by conversation language"), ("false_block_authorized_by_lang", "False blocks (authorized) by lang")):
+            md += [f"{label}: " + "; ".join(f"{k} {pct(v)}" for k, v in b[key].items()), ""]
         md += ["| Threshold | Detect (field) | Detect (snippet) | False alarm (clean) | False block (authorized) |", "|---|---|---|---|---|"]
         f = lambda x: "—" if x is None else f"{100 * x:.1f}%"
         for t, v in b["sweep"].items():

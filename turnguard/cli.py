@@ -133,6 +133,7 @@ def _run(args: argparse.Namespace) -> int:
             concurrency=args.api_concurrency,
             rpm=args.api_rpm,
             cache_dir=str(cache),
+            extra_body=json.loads(args.api_extra) if args.api_extra else None,
         )
     else:
         if not args.model or args.model not in config["models"]:
@@ -452,6 +453,9 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--generator", choices=("stub", "hf", "api"), required=True)
     run.add_argument("--api-model", help="Model name at the API endpoint")
     run.add_argument("--api-concurrency", type=int, default=4)
+    run.add_argument(
+        "--api-extra", help="Extra JSON request fields, e.g. '{\"top_k\": 1}'"
+    )
     run.add_argument("--api-rpm", type=float, help="Client-side requests per minute")
     run.add_argument("--ids-file", help="Only run episode IDs listed one per line")
     run.add_argument("--stub-script")

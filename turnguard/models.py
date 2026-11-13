@@ -90,6 +90,7 @@ class APIGenerator:
         cache_dir: str | None = None,
         timeout: float = 120.0,
         max_retries: int = 6,
+        extra_body: dict | None = None,
     ) -> None:
         if not model or not api_base or not api_key:
             raise ValueError("API generation needs a model, base URL and key")
@@ -102,6 +103,7 @@ class APIGenerator:
         self.timeout = timeout
         self.max_retries = max_retries
         self.cache_dir = cache_dir
+        self.extra_body = dict(extra_body or {})
         self.calls = 0
         self.cached = 0
         self.usage = {"prompt_tokens": 0, "completion_tokens": 0}
@@ -117,6 +119,7 @@ class APIGenerator:
             "temperature": 0,
             "max_tokens": self.max_new_tokens,
             "stop": STOP_STRINGS,
+            **self.extra_body,
         }
 
     def _throttle(self) -> None:
@@ -176,6 +179,9 @@ class APIGenerator:
             return json.loads(path.read_text("utf-8"))["text"]
         data = self._post(payload)
         text = data["choices"][0]["message"].get("content") or ""
+        # Reasoning models may inline their hidden reasoning; grade the reply only.
+        if "</think>" in text:
+            text = text.split("</think>", 1)[1].lstrip()
         for stop in STOP_STRINGS:
             text = text.split(stop)[0]
         with self._lock:
