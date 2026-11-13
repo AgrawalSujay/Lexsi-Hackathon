@@ -174,9 +174,14 @@ class APIGenerator:
         ).hexdigest()
         path = Path(self.cache_dir) / f"{key}.json" if self.cache_dir else None
         if path is not None and path.exists():
-            with self._lock:
-                self.cached += 1
-            return json.loads(path.read_text("utf-8"))["text"]
+            try:
+                text = json.loads(path.read_text("utf-8"))["text"]
+            except (ValueError, KeyError, TypeError):
+                logger.warning("Ignoring unreadable API cache entry %s", path.name)
+            else:
+                with self._lock:
+                    self.cached += 1
+                return text
         data = self._post(payload)
         text = data["choices"][0]["message"].get("content") or ""
         # Reasoning models may inline their hidden reasoning; grade the reply only.
@@ -190,7 +195,12 @@ class APIGenerator:
                 self.usage[k] += int((data.get("usage") or {}).get(k) or 0)
         if path is not None:
             path.parent.mkdir(parents=True, exist_ok=True)
-            tmp = path.with_suffix(".tmp")
+            # Identical requests can run concurrently (episodes sharing a prefix),
+            # so each writer needs its own temporary file before the atomic rename.
+            import os
+            import threading
+
+            tmp = path.with_suffix(f".{os.getpid()}.{threading.get_ident()}.tmp")
             tmp.write_text(json.dumps({"text": text}, ensure_ascii=False), "utf-8")
             tmp.replace(path)
         return text

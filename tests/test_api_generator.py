@@ -30,3 +30,28 @@ def test_api_generator_requires_settings():
 
     with pytest.raises(ValueError):
         APIGenerator("", "https://example.invalid/v1", "k")
+
+
+def test_api_generator_concurrent_identical_requests_and_corrupt_cache(
+    tmp_path, monkeypatch
+):
+    import time
+
+    def slow_post(self, payload):
+        time.sleep(0.01)
+        return {"choices": [{"message": {"content": "FINAL: ok " * 50}}]}
+
+    monkeypatch.setattr(APIGenerator, "_post", slow_post)
+    gen = APIGenerator(
+        "m", "https://example.invalid/v1", "k", cache_dir=str(tmp_path), concurrency=8
+    )
+    same = [
+        GenRequest(f"e{i}", 1, [{"role": "user", "content": "hi"}]) for i in range(32)
+    ]
+    assert len(set(gen.generate(same))) == 1
+    files = list(tmp_path.glob("*.json"))
+    assert len(files) == 1 and json.loads(files[0].read_text())["text"]
+    assert not list(tmp_path.glob("*.tmp"))
+    files[0].write_text('{"text": "x"}{"text": "y"}')
+    assert gen.generate(same[:1]) == ["FINAL: ok " * 50]
+    assert json.loads(files[0].read_text())["text"] == "FINAL: ok " * 50
