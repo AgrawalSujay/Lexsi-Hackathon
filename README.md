@@ -45,7 +45,8 @@ turnguard/            Python package
   cli.py              python -m turnguard <command>
 configs/              models, arms (incl. the A1 prompt), data builder, evals
 docs/protocol.md      the agent protocol every arm is evaluated with
-scripts/              modal_run.py (GPU jobs), results_report.py, mmlu_lenient.py, hf_publish.py
+scripts/              modal_run.py (GPU jobs), results_report.py, mmlu_lenient.py, hf_publish.py,
+                      detector_baseline.py (classifier baselines), api_models.py (API model comparison)
 analysis/             generated results tables and figures
 tests/                CPU-only tests (stub model, no downloads)
 notes/                design notes per development stage
@@ -196,7 +197,31 @@ This takes about a minute on CPU.
 .venv/bin/python -m turnguard compare <run A> <run B> --specs-a data/v1/test --specs-b data/v1/test
 ```
 
-### 8. Publish (optional)
+### 8. Off-the-shelf filters and larger models (no GPU)
+
+The classifier baseline runs on a laptop CPU in a few minutes per model. Prompt Guard 2 is gated: accept Meta's licence on Hugging Face first.
+
+```bash
+.venv/bin/pip install torch transformers sentencepiece protobuf
+.venv/bin/python scripts/detector_baseline.py
+.venv/bin/python scripts/detector_baseline.py --model protectai/deberta-v3-base-prompt-injection-v2
+```
+
+Any OpenAI-compatible model can run the same episodes through `--generator api`. Set `TG_API_BASE` and `TG_API_KEY` in `.env` or the environment. Responses are cached in `api_cache/`, so an interrupted run resumes without repeating calls. `--api-rpm` throttles requests, `--ids-file` restricts the run to listed episodes, and `--api-extra` adds request fields.
+
+```bash
+.venv/bin/python scripts/api_models.py subset --injected 100 --authorized 60
+.venv/bin/python -m turnguard run-episodes --episodes data/v1/test --split test --generator api \
+    --api-model command-a-03-2025 --ids-file analysis/api_subset_ids.txt --api-rpm 18 --api-concurrency 2
+.venv/bin/python -m turnguard run-episodes --episodes data/v1/test --split test --generator api \
+    --api-model qwen3.8-27b --api-concurrency 4 --api-extra '{"chat_template_kwargs": {"enable_thinking": false}}'
+.venv/bin/python scripts/api_models.py compare runs/A0__CohereLabs-aya-expanse-8b__test__* \
+    runs/A4__CohereLabs-aya-expanse-8b__test__* runs/A0__command-a-03-2025__test__* runs/A0__qwen3.8-27b__test__*
+```
+
+`compare` reports each metric on the episodes every listed run covers, with exact McNemar tests against the first run.
+
+### 9. Publish (optional)
 
 `stage` builds the upload folders, redacts responses to unsafe XSTest prompts and scans for secrets; `upload` pushes them and creates the collections.
 
