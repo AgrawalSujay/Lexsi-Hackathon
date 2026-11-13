@@ -1,5 +1,6 @@
 """Define the generator interface and a scripted CPU-only generator."""
 
+import json
 import logging
 from collections.abc import Callable, Mapping
 from contextlib import AbstractContextManager, nullcontext
@@ -68,6 +69,135 @@ def validate_cuda_dtype(torch, dtype: str, *, require_cuda: bool = False) -> Non
         raise UnsupportedDtypeError(
             "bf16 is not supported on this GPU; use --dtype fp16 on T4"
         )
+
+
+class APIGenerator:
+    """Greedy chat completions from any OpenAI-compatible endpoint (stdlib only).
+
+    Responses are cached on disk by request hash, so an interrupted or repeated
+    run never pays twice. Stop strings are sent and also enforced client-side.
+    """
+
+    def __init__(
+        self,
+        model: str,
+        api_base: str,
+        api_key: str,
+        *,
+        max_new_tokens: int = 256,
+        concurrency: int = 4,
+        rpm: float | None = None,
+        cache_dir: str | None = None,
+        timeout: float = 120.0,
+        max_retries: int = 6,
+    ) -> None:
+        if not model or not api_base or not api_key:
+            raise ValueError("API generation needs a model, base URL and key")
+        self.name = model
+        self.api_base = api_base.rstrip("/")
+        self._key = api_key
+        self.max_new_tokens = max_new_tokens
+        self.concurrency = max(1, concurrency)
+        self.interval = 60.0 / rpm if rpm else 0.0
+        self.timeout = timeout
+        self.max_retries = max_retries
+        self.cache_dir = cache_dir
+        self.calls = 0
+        self.cached = 0
+        self.usage = {"prompt_tokens": 0, "completion_tokens": 0}
+        import threading
+
+        self._lock = threading.Lock()
+        self._next_slot = 0.0
+
+    def _payload(self, messages: list[dict]) -> dict:
+        return {
+            "model": self.name,
+            "messages": messages,
+            "temperature": 0,
+            "max_tokens": self.max_new_tokens,
+            "stop": STOP_STRINGS,
+        }
+
+    def _throttle(self) -> None:
+        import time
+
+        if not self.interval:
+            return
+        with self._lock:
+            now = time.monotonic()
+            wait = max(0.0, self._next_slot - now)
+            self._next_slot = max(now, self._next_slot) + self.interval
+        if wait:
+            time.sleep(wait)
+
+    def _post(self, payload: dict) -> dict:
+        import time
+        import urllib.error
+        import urllib.request
+
+        body = json.dumps(payload).encode()
+        for attempt in range(self.max_retries + 1):
+            self._throttle()
+            request = urllib.request.Request(
+                f"{self.api_base}/chat/completions",
+                data=body,
+                headers={
+                    "Authorization": f"Bearer {self._key}",
+                    "Content-Type": "application/json",
+                },
+            )
+            try:
+                with urllib.request.urlopen(request, timeout=self.timeout) as reply:
+                    return json.loads(reply.read())
+            except urllib.error.HTTPError as error:
+                retryable = error.code == 429 or error.code >= 500
+                if not retryable or attempt == self.max_retries:
+                    detail = error.read()[:300].decode("utf-8", "replace")
+                    raise RuntimeError(f"API error {error.code}: {detail}") from None
+            except (urllib.error.URLError, TimeoutError) as error:
+                if attempt == self.max_retries:
+                    raise RuntimeError(f"API unreachable: {error}") from None
+            time.sleep(min(60, 2**attempt * 2))
+        raise RuntimeError("unreachable")
+
+    def _one(self, request: GenRequest) -> str:
+        import hashlib
+        from pathlib import Path
+
+        payload = self._payload(request.messages)
+        key = hashlib.sha256(
+            json.dumps([self.api_base, payload], sort_keys=True).encode()
+        ).hexdigest()
+        path = Path(self.cache_dir) / f"{key}.json" if self.cache_dir else None
+        if path is not None and path.exists():
+            with self._lock:
+                self.cached += 1
+            return json.loads(path.read_text("utf-8"))["text"]
+        data = self._post(payload)
+        text = data["choices"][0]["message"].get("content") or ""
+        for stop in STOP_STRINGS:
+            text = text.split(stop)[0]
+        with self._lock:
+            self.calls += 1
+            for k in self.usage:
+                self.usage[k] += int((data.get("usage") or {}).get(k) or 0)
+        if path is not None:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = path.with_suffix(".tmp")
+            tmp.write_text(json.dumps({"text": text}, ensure_ascii=False), "utf-8")
+            tmp.replace(path)
+        return text
+
+    def generate(self, batch: list[GenRequest]) -> list[str]:
+        from concurrent.futures import ThreadPoolExecutor
+
+        with ThreadPoolExecutor(self.concurrency) as pool:
+            outputs = list(pool.map(self._one, batch))
+        logger.info(
+            "API calls %s (cached %s), tokens %s", self.calls, self.cached, self.usage
+        )
+        return outputs
 
 
 class HFGenerator:

@@ -13,7 +13,7 @@ from turnguard.arms.runtime import resolve_arm
 from turnguard.config import load_config
 from turnguard.harness import run_episodes
 from turnguard.metrics import compute_metrics
-from turnguard.models import HFGenerator, StubGenerator
+from turnguard.models import APIGenerator, HFGenerator, StubGenerator
 from turnguard.protocol import PROTOCOL_VERSION
 from turnguard.runs import RunTimer, new_run_dir
 from turnguard.schema import EpisodeSpec, validate_episode
@@ -61,6 +61,16 @@ def _run(args: argparse.Namespace) -> int:
             problems = validate_episode(spec, twins=by_id)
             if problems:
                 raise ValueError(f"{spec.id}: {'; '.join(problems)}")
+    if args.ids_file:
+        wanted = {
+            line.strip()
+            for line in Path(args.ids_file).read_text("utf-8").splitlines()
+            if line.strip()
+        }
+        missing_ids = wanted - {spec.id for spec in specs}
+        if missing_ids:
+            raise ValueError(f"--ids-file has unknown IDs: {sorted(missing_ids)[:3]}")
+        specs = [spec for spec in specs if spec.id in wanted]
     specs = select_episodes(specs, limit=args.limit, shard=args.shard)
     if not specs:
         raise ValueError("No episodes selected for this limit/shard")
@@ -94,6 +104,36 @@ def _run(args: argparse.Namespace) -> int:
             "stub_script": str(script_path),
             "stub_script_sha256": hashlib.sha256(script_bytes).hexdigest(),
         }
+    elif args.generator == "api":
+        import os
+        import shlex
+
+        env = {}
+        dotenv = Path(__file__).resolve().parents[1] / ".env"
+        if dotenv.exists():
+            for line in dotenv.read_text("utf-8").splitlines():
+                name, sep, value = line.removeprefix("export ").partition("=")
+                if sep and name.strip().startswith("TG_API_"):
+                    env[name.strip()] = " ".join(shlex.split(value, comments=True))
+        env.update({k: v for k, v in os.environ.items() if k.startswith("TG_API_")})
+        base = env.get("TG_API_BASE")
+        key = env.get("TG_API_KEY")
+        model = args.api_model or env.get("TG_API_MODEL")
+        if not (base and key and model):
+            raise ValueError(
+                "Set TG_API_BASE and TG_API_KEY (environment or .env) and "
+                "--api-model or TG_API_MODEL"
+            )
+        cache = Path(args.root or Path(__file__).resolve().parents[1]) / "api_cache"
+        generator = APIGenerator(
+            model,
+            base,
+            key,
+            max_new_tokens=decoding["max_new_tokens"],
+            concurrency=args.api_concurrency,
+            rpm=args.api_rpm,
+            cache_dir=str(cache),
+        )
     else:
         if not args.model or args.model not in config["models"]:
             raise ValueError(
@@ -409,7 +449,11 @@ def main(argv: list[str] | None = None) -> int:
         required=True,
         help="Episode JSON/glob or built split directory/episodes.jsonl",
     )
-    run.add_argument("--generator", choices=("stub", "hf"), required=True)
+    run.add_argument("--generator", choices=("stub", "hf", "api"), required=True)
+    run.add_argument("--api-model", help="Model name at the API endpoint")
+    run.add_argument("--api-concurrency", type=int, default=4)
+    run.add_argument("--api-rpm", type=float, help="Client-side requests per minute")
+    run.add_argument("--ids-file", help="Only run episode IDs listed one per line")
     run.add_argument("--stub-script")
     run.add_argument("--dtype", choices=("fp16", "bf16", "fp32"))
     run.add_argument("--limit", type=int, help="Total episodes before sharding")
