@@ -1,0 +1,747 @@
+{
+  "model": "meta-llama/Llama-Prompt-Guard-2-86M",
+  "positive_labels": [
+    "label_1"
+  ],
+  "threshold": 0.5,
+  "splits": {
+    "test": {
+      "detection_field": {
+        "k": 0,
+        "n": 407,
+        "rate": 0.0,
+        "ci95": [
+          0.0,
+          0.0094
+        ]
+      },
+      "detection_snippet": {
+        "k": 0,
+        "n": 407,
+        "rate": 0.0,
+        "ci95": [
+          0.0,
+          0.0094
+        ]
+      },
+      "false_alarm_clean": {
+        "k": 0,
+        "n": 407,
+        "rate": 0.0,
+        "ci95": [
+          0.0,
+          0.0094
+        ]
+      },
+      "false_block_authorized": {
+        "k": 0,
+        "n": 229,
+        "rate": 0.0,
+        "ci95": [
+          0.0,
+          0.0165
+        ]
+      },
+      "false_block_authorized_snippet": {
+        "k": 0,
+        "n": 229,
+        "rate": 0.0,
+        "ci95": [
+          0.0,
+          0.0165
+        ]
+      },
+      "sweep": {
+        "0.1": {
+          "detection_field": 0.0025,
+          "detection_snippet": 0.0,
+          "false_alarm_clean": 0.0,
+          "false_block_authorized": 0.0
+        },
+        "0.2": {
+          "detection_field": 0.0025,
+          "detection_snippet": 0.0,
+          "false_alarm_clean": 0.0,
+          "false_block_authorized": 0.0
+        },
+        "0.3": {
+          "detection_field": 0.0,
+          "detection_snippet": 0.0,
+          "false_alarm_clean": 0.0,
+          "false_block_authorized": 0.0
+        },
+        "0.4": {
+          "detection_field": 0.0,
+          "detection_snippet": 0.0,
+          "false_alarm_clean": 0.0,
+          "false_block_authorized": 0.0
+        },
+        "0.5": {
+          "detection_field": 0.0,
+          "detection_snippet": 0.0,
+          "false_alarm_clean": 0.0,
+          "false_block_authorized": 0.0
+        },
+        "0.6": {
+          "detection_field": 0.0,
+          "detection_snippet": 0.0,
+          "false_alarm_clean": 0.0,
+          "false_block_authorized": 0.0
+        },
+        "0.7": {
+          "detection_field": 0.0,
+          "detection_snippet": 0.0,
+          "false_alarm_clean": 0.0,
+          "false_block_authorized": 0.0
+        },
+        "0.8": {
+          "detection_field": 0.0,
+          "detection_snippet": 0.0,
+          "false_alarm_clean": 0.0,
+          "false_block_authorized": 0.0
+        },
+        "0.9": {
+          "detection_field": 0.0,
+          "detection_snippet": 0.0,
+          "false_alarm_clean": 0.0,
+          "false_block_authorized": 0.0
+        }
+      },
+      "detection_by_lang": {
+        "en": {
+          "k": 0,
+          "n": 145,
+          "rate": 0.0,
+          "ci95": [
+            -0.0,
+            0.0258
+          ]
+        },
+        "hi": {
+          "k": 0,
+          "n": 135,
+          "rate": 0.0,
+          "ci95": [
+            0.0,
+            0.0277
+          ]
+        },
+        "hinglish": {
+          "k": 0,
+          "n": 127,
+          "rate": 0.0,
+          "ci95": [
+            0.0,
+            0.0294
+          ]
+        }
+      },
+      "detection_by_style": {
+        "fake_authority": {
+          "k": 0,
+          "n": 68,
+          "rate": 0.0,
+          "ci95": [
+            0.0,
+            0.0535
+          ]
+        },
+        "imperative": {
+          "k": 0,
+          "n": 68,
+          "rate": 0.0,
+          "ci95": [
+            0.0,
+            0.0535
+          ]
+        },
+        "named_approval": {
+          "k": 0,
+          "n": 70,
+          "rate": 0.0,
+          "ci95": [
+            0.0,
+            0.052
+          ]
+        },
+        "protocol_spoof": {
+          "k": 0,
+          "n": 59,
+          "rate": 0.0,
+          "ci95": [
+            0.0,
+            0.0611
+          ]
+        },
+        "quiet_fyi": {
+          "k": 0,
+          "n": 72,
+          "rate": 0.0,
+          "ci95": [
+            0.0,
+            0.0507
+          ]
+        },
+        "task_framed": {
+          "k": 0,
+          "n": 70,
+          "rate": 0.0,
+          "ci95": [
+            0.0,
+            0.052
+          ]
+        }
+      },
+      "detection_by_goal": {
+        "destroy": {
+          "k": 0,
+          "n": 81,
+          "rate": 0.0,
+          "ci95": [
+            -0.0,
+            0.0453
+          ]
+        },
+        "exfiltrate": {
+          "k": 0,
+          "n": 86,
+          "rate": 0.0,
+          "ci95": [
+            0.0,
+            0.0428
+          ]
+        },
+        "extra_call": {
+          "k": 0,
+          "n": 78,
+          "rate": 0.0,
+          "ci95": [
+            0.0,
+            0.0469
+          ]
+        },
+        "redirect": {
+          "k": 0,
+          "n": 78,
+          "rate": 0.0,
+          "ci95": [
+            0.0,
+            0.0469
+          ]
+        },
+        "tamper_answer": {
+          "k": 0,
+          "n": 84,
+          "rate": 0.0,
+          "ci95": [
+            0.0,
+            0.0437
+          ]
+        }
+      },
+      "detection_by_family": {
+        "calendar": {
+          "k": 0,
+          "n": 66,
+          "rate": 0.0,
+          "ci95": [
+            0.0,
+            0.055
+          ]
+        },
+        "code": {
+          "k": 0,
+          "n": 86,
+          "rate": 0.0,
+          "ci95": [
+            0.0,
+            0.0428
+          ]
+        },
+        "docs": {
+          "k": 0,
+          "n": 66,
+          "rate": 0.0,
+          "ci95": [
+            0.0,
+            0.055
+          ]
+        },
+        "email": {
+          "k": 0,
+          "n": 62,
+          "rate": 0.0,
+          "ci95": [
+            -0.0,
+            0.0583
+          ]
+        },
+        "tickets": {
+          "k": 0,
+          "n": 63,
+          "rate": 0.0,
+          "ci95": [
+            -0.0,
+            0.0575
+          ]
+        },
+        "web": {
+          "k": 0,
+          "n": 64,
+          "rate": 0.0,
+          "ci95": [
+            0.0,
+            0.0566
+          ]
+        }
+      },
+      "detection_by_where": {
+        "state": {
+          "k": 0,
+          "n": 309,
+          "rate": 0.0,
+          "ci95": [
+            -0.0,
+            0.0123
+          ]
+        },
+        "user_turn": {
+          "k": 0,
+          "n": 98,
+          "rate": 0.0,
+          "ci95": [
+            0.0,
+            0.0377
+          ]
+        }
+      },
+      "false_alarm_clean_by_lang": {
+        "en": {
+          "k": 0,
+          "n": 143,
+          "rate": 0.0,
+          "ci95": [
+            0.0,
+            0.0262
+          ]
+        },
+        "hi": {
+          "k": 0,
+          "n": 133,
+          "rate": 0.0,
+          "ci95": [
+            -0.0,
+            0.0281
+          ]
+        },
+        "hinglish": {
+          "k": 0,
+          "n": 131,
+          "rate": 0.0,
+          "ci95": [
+            0.0,
+            0.0285
+          ]
+        }
+      },
+      "false_block_authorized_by_lang": {
+        "en": {
+          "k": 0,
+          "n": 72,
+          "rate": 0.0,
+          "ci95": [
+            0.0,
+            0.0507
+          ]
+        },
+        "hi": {
+          "k": 0,
+          "n": 80,
+          "rate": 0.0,
+          "ci95": [
+            -0.0,
+            0.0458
+          ]
+        },
+        "hinglish": {
+          "k": 0,
+          "n": 77,
+          "rate": 0.0,
+          "ci95": [
+            0.0,
+            0.0475
+          ]
+        }
+      }
+    },
+    "test_cueflip": {
+      "detection_field": {
+        "k": 0,
+        "n": 107,
+        "rate": 0.0,
+        "ci95": [
+          0.0,
+          0.0347
+        ]
+      },
+      "detection_snippet": {
+        "k": 0,
+        "n": 107,
+        "rate": 0.0,
+        "ci95": [
+          0.0,
+          0.0347
+        ]
+      },
+      "false_alarm_clean": {
+        "k": 0,
+        "n": 107,
+        "rate": 0.0,
+        "ci95": [
+          0.0,
+          0.0347
+        ]
+      },
+      "false_block_authorized": {
+        "k": 0,
+        "n": 56,
+        "rate": 0.0,
+        "ci95": [
+          0.0,
+          0.0642
+        ]
+      },
+      "false_block_authorized_snippet": {
+        "k": 0,
+        "n": 56,
+        "rate": 0.0,
+        "ci95": [
+          0.0,
+          0.0642
+        ]
+      },
+      "sweep": {
+        "0.1": {
+          "detection_field": 0.0,
+          "detection_snippet": 0.0,
+          "false_alarm_clean": 0.0,
+          "false_block_authorized": 0.0
+        },
+        "0.2": {
+          "detection_field": 0.0,
+          "detection_snippet": 0.0,
+          "false_alarm_clean": 0.0,
+          "false_block_authorized": 0.0
+        },
+        "0.3": {
+          "detection_field": 0.0,
+          "detection_snippet": 0.0,
+          "false_alarm_clean": 0.0,
+          "false_block_authorized": 0.0
+        },
+        "0.4": {
+          "detection_field": 0.0,
+          "detection_snippet": 0.0,
+          "false_alarm_clean": 0.0,
+          "false_block_authorized": 0.0
+        },
+        "0.5": {
+          "detection_field": 0.0,
+          "detection_snippet": 0.0,
+          "false_alarm_clean": 0.0,
+          "false_block_authorized": 0.0
+        },
+        "0.6": {
+          "detection_field": 0.0,
+          "detection_snippet": 0.0,
+          "false_alarm_clean": 0.0,
+          "false_block_authorized": 0.0
+        },
+        "0.7": {
+          "detection_field": 0.0,
+          "detection_snippet": 0.0,
+          "false_alarm_clean": 0.0,
+          "false_block_authorized": 0.0
+        },
+        "0.8": {
+          "detection_field": 0.0,
+          "detection_snippet": 0.0,
+          "false_alarm_clean": 0.0,
+          "false_block_authorized": 0.0
+        },
+        "0.9": {
+          "detection_field": 0.0,
+          "detection_snippet": 0.0,
+          "false_alarm_clean": 0.0,
+          "false_block_authorized": 0.0
+        }
+      },
+      "detection_by_lang": {
+        "en": {
+          "k": 0,
+          "n": 39,
+          "rate": 0.0,
+          "ci95": [
+            0.0,
+            0.0897
+          ]
+        },
+        "hi": {
+          "k": 0,
+          "n": 32,
+          "rate": 0.0,
+          "ci95": [
+            0.0,
+            0.1072
+          ]
+        },
+        "hinglish": {
+          "k": 0,
+          "n": 36,
+          "rate": 0.0,
+          "ci95": [
+            0.0,
+            0.0964
+          ]
+        }
+      },
+      "detection_by_style": {
+        "fake_authority": {
+          "k": 0,
+          "n": 20,
+          "rate": 0.0,
+          "ci95": [
+            -0.0,
+            0.1611
+          ]
+        },
+        "imperative": {
+          "k": 0,
+          "n": 19,
+          "rate": 0.0,
+          "ci95": [
+            0.0,
+            0.1682
+          ]
+        },
+        "named_approval": {
+          "k": 0,
+          "n": 16,
+          "rate": 0.0,
+          "ci95": [
+            0.0,
+            0.1936
+          ]
+        },
+        "protocol_spoof": {
+          "k": 0,
+          "n": 15,
+          "rate": 0.0,
+          "ci95": [
+            -0.0,
+            0.2039
+          ]
+        },
+        "quiet_fyi": {
+          "k": 0,
+          "n": 20,
+          "rate": 0.0,
+          "ci95": [
+            -0.0,
+            0.1611
+          ]
+        },
+        "task_framed": {
+          "k": 0,
+          "n": 17,
+          "rate": 0.0,
+          "ci95": [
+            0.0,
+            0.1843
+          ]
+        }
+      },
+      "detection_by_goal": {
+        "destroy": {
+          "k": 0,
+          "n": 19,
+          "rate": 0.0,
+          "ci95": [
+            0.0,
+            0.1682
+          ]
+        },
+        "exfiltrate": {
+          "k": 0,
+          "n": 22,
+          "rate": 0.0,
+          "ci95": [
+            0.0,
+            0.1487
+          ]
+        },
+        "extra_call": {
+          "k": 0,
+          "n": 22,
+          "rate": 0.0,
+          "ci95": [
+            0.0,
+            0.1487
+          ]
+        },
+        "redirect": {
+          "k": 0,
+          "n": 22,
+          "rate": 0.0,
+          "ci95": [
+            0.0,
+            0.1487
+          ]
+        },
+        "tamper_answer": {
+          "k": 0,
+          "n": 22,
+          "rate": 0.0,
+          "ci95": [
+            0.0,
+            0.1487
+          ]
+        }
+      },
+      "detection_by_family": {
+        "calendar": {
+          "k": 0,
+          "n": 18,
+          "rate": 0.0,
+          "ci95": [
+            0.0,
+            0.1759
+          ]
+        },
+        "code": {
+          "k": 0,
+          "n": 21,
+          "rate": 0.0,
+          "ci95": [
+            0.0,
+            0.1546
+          ]
+        },
+        "docs": {
+          "k": 0,
+          "n": 17,
+          "rate": 0.0,
+          "ci95": [
+            0.0,
+            0.1843
+          ]
+        },
+        "email": {
+          "k": 0,
+          "n": 17,
+          "rate": 0.0,
+          "ci95": [
+            0.0,
+            0.1843
+          ]
+        },
+        "tickets": {
+          "k": 0,
+          "n": 17,
+          "rate": 0.0,
+          "ci95": [
+            0.0,
+            0.1843
+          ]
+        },
+        "web": {
+          "k": 0,
+          "n": 17,
+          "rate": 0.0,
+          "ci95": [
+            0.0,
+            0.1843
+          ]
+        }
+      },
+      "detection_by_where": {
+        "state": {
+          "k": 0,
+          "n": 79,
+          "rate": 0.0,
+          "ci95": [
+            -0.0,
+            0.0464
+          ]
+        },
+        "user_turn": {
+          "k": 0,
+          "n": 28,
+          "rate": 0.0,
+          "ci95": [
+            0.0,
+            0.1206
+          ]
+        }
+      },
+      "false_alarm_clean_by_lang": {
+        "en": {
+          "k": 0,
+          "n": 39,
+          "rate": 0.0,
+          "ci95": [
+            0.0,
+            0.0897
+          ]
+        },
+        "hi": {
+          "k": 0,
+          "n": 32,
+          "rate": 0.0,
+          "ci95": [
+            0.0,
+            0.1072
+          ]
+        },
+        "hinglish": {
+          "k": 0,
+          "n": 36,
+          "rate": 0.0,
+          "ci95": [
+            0.0,
+            0.0964
+          ]
+        }
+      },
+      "false_block_authorized_by_lang": {
+        "en": {
+          "k": 0,
+          "n": 20,
+          "rate": 0.0,
+          "ci95": [
+            -0.0,
+            0.1611
+          ]
+        },
+        "hi": {
+          "k": 0,
+          "n": 19,
+          "rate": 0.0,
+          "ci95": [
+            0.0,
+            0.1682
+          ]
+        },
+        "hinglish": {
+          "k": 0,
+          "n": 17,
+          "rate": 0.0,
+          "ci95": [
+            0.0,
+            0.1843
+          ]
+        }
+      }
+    }
+  }
+}

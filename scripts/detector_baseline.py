@@ -211,6 +211,12 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
     name = args.model.split("/")[-1]
     (out / f"detector_{name}.json").write_text(json.dumps(res, indent=2, ensure_ascii=False))
+    with open(out / f"detector_{name}_episodes.jsonl", "w", encoding="utf-8") as fh:
+        for e in eps:
+            row = {k: e[k] for k in ("split", "unit", "id", "lang", "conv", "style", "goal")}
+            row.update(p_field=round(e["p_field"], 6), p_snippet=round(e["p_snippet"], 6))
+            row["where"] = sorted(e["where"])
+            fh.write(json.dumps(row, ensure_ascii=False) + "\n")
 
     pct = lambda d: "—" if d["rate"] is None else f"{100 * d['rate']:.1f}% ({d['k']}/{d['n']})"
     md = [f"# External detector baseline: `{args.model}`", "",

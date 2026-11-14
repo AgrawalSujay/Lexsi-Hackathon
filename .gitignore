@@ -50,3 +50,5 @@ hf_staging*/
 *.log
 /data/old*/
 /data/v1/dev_smoke_*/
+/api_cache/
+/analysis/relay_audit/
