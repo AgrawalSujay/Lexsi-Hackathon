@@ -32,6 +32,7 @@ We release the benchmark with every translation reviewed by a second model, the 
 - [Models collection](https://huggingface.co/collections/SujayAgrawal/turnguard-models-6af5680cfeefa5c5291959dd)
 - [Datasets and logs collection](https://huggingface.co/collections/SujayAgrawal/turnguard-datasets-and-logs-6af5680eeb29a7da63da3311)
 - [Code](https://github.com/AgrawalSujay/Lexsi-Hackathon)
+- [Demo Space](https://huggingface.co/spaces/SujayAgrawal/turnguard-demo): 14 recorded episodes, base model vs adapter side by side, including known failures
 
 ## For judges: one minute
 
@@ -160,12 +161,12 @@ These were compatibility issues with Transformers 5 and TRL, which SafeTune 0.1.
 - We pass `warmup_steps=0.1` (a fraction of total steps) in place of `warmup_ratio`, which Transformers 5 no longer accepts in our setup.
 - TRL's `DPOTrainer`, which SafeTune's `CSTTrainer` wraps, logs the reward metrics of every named evaluation set under the same `eval_` keys, so the subsets can't be told apart. We subclassed the trainer to keep the subset names for our held-out FINAL and ACTION sets.
 
-**Upstream reports.** We reported 4 bugs upstream, each with a repro; the maintainers wrote fixes for 3 of them within hours:
+**Upstream reports.** We reported 4 bugs upstream, each with a repro; the maintainers fixed and merged 3 of them:
 
 - [huggingface/trl#8307](https://github.com/huggingface/trl/issues/8307): DPO eval metrics lose the eval-set name (the TRL issue above).
-- [Lexsi-Labs/SafeTune#84](https://github.com/Lexsi-Labs/SafeTune/issues/84): the same problem in `CSTTrainer`, fix by the SafeTune maintainers in PR #77.
-- [Lexsi-Labs/AuditKIT#44](https://github.com/Lexsi-Labs/AuditKIT/issues/44): final-state coverage stays "unavailable" after the state is attached, fix in AuditKIT PR #46.
-- [Lexsi-Labs/AuditKIT#45](https://github.com/Lexsi-Labs/AuditKIT/issues/45): no way to still score an unsafe action that happened before a run errored, now an opt-in mode in AuditKIT PR #46.
+- [Lexsi-Labs/SafeTune#84](https://github.com/Lexsi-Labs/SafeTune/issues/84): the same problem in `CSTTrainer`, fixed by the SafeTune maintainers in PR #77 (merged).
+- [Lexsi-Labs/AuditKIT#44](https://github.com/Lexsi-Labs/AuditKIT/issues/44): final-state coverage stays "unavailable" after the state is attached, fixed in AuditKIT PR #46 (merged).
+- [Lexsi-Labs/AuditKIT#45](https://github.com/Lexsi-Labs/AuditKIT/issues/45): no way to still score an unsafe action that happened before a run errored, now an opt-in mode in AuditKIT (merged).
 
 ## 3. Models and licenses
 
@@ -531,6 +532,7 @@ The [README](README.md) has the commands to build the data, run each configurati
 | Datasets and licenses | Section 4 |
 | Public model collection | [TurnGuard: models](https://huggingface.co/collections/SujayAgrawal/turnguard-models-6af5680cfeefa5c5291959dd) |
 | Public dataset and logs collection | [TurnGuard: datasets and logs](https://huggingface.co/collections/SujayAgrawal/turnguard-datasets-and-logs-6af5680eeb29a7da63da3311) |
+| Demo | [TurnGuard demo Space](https://huggingface.co/spaces/SujayAgrawal/turnguard-demo) |
 | Code with reproduction steps | [GitHub](https://github.com/AgrawalSujay/Lexsi-Hackathon), [README](README.md) |
 | Results with uncertainty | Sections 7.1–7.4 (paired McNemar tests, clustered bootstrap CIs) |
 | Abstract, claim, headline, base model and method | Top of the page |
@@ -548,7 +550,7 @@ The [README](README.md) has the commands to build the data, run each configurati
 
 ## Acknowledgements
 
-Thanks to Lexsi Labs for organising the hackathon and for CuratorKIT, SafeTune and AuditKIT, and to their maintainers for fixing three of our reports within hours. Thanks to Cohere Labs for releasing Aya Expanse and for the trial API access we used for Command A.
+Thanks to Lexsi Labs for organising the hackathon and for CuratorKIT, SafeTune and AuditKIT, and to their maintainers for fixing and merging three of our reports. Thanks to Cohere Labs for releasing Aya Expanse and for the trial API access we used for Command A.
 
 ## LLM usage statement
 
