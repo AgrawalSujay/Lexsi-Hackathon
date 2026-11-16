@@ -1,31 +1,16 @@
-# TurnGuard: training Aya Expanse 8B to ignore injected instructions in multilingual, multi-turn agent tasks
+# TurnGuard: testing prompt injection in multi-turn agents
 
-**One-line claim:** On a frozen multilingual (English, Hindi, Hinglish) multi-turn agent benchmark, a SafeTune DPO LoRA cuts Aya Expanse 8B's prompt-injection success from 31.9% to 2.5% on scenarios it never saw, where a defensive prompt, activation steering, off-the-shelf injection filters and 3–14× larger models do not.
+**Aya Expanse 8B in English, Hindi, and Hinglish**
 
-**Sujay Agrawal, Ratan Kokal** · Lexsi Labs AI Safety & Alignment Hackathon · Track 2 (2a red-teaming + 2b correction)
-
-**Base model and method:** CohereLabs/aya-expanse-8b (bf16), corrected with a DPO LoRA (rank 16) trained with SafeTune's CST trainer on 1,032 on-policy preference pairs built from the model's own failures.
-
-**Headline:** attack success (executed or relayed) **31.9% → 2.5%** on 407 held-out attacks; clean task success **20.6% → 51.8%**; XSTest over-refusal **8.8% → 8.4%**.
-
-> **Content warning.** This write-up quotes mock prompt-injection attacks (for example, requests to forward a document to an outside address). They target fictitious example domains in a sandbox and contain no harmful content. Model responses to unsafe XSTest prompts are redacted in the released logs and are not quoted here.
+Sujay Agrawal and Ratan Kokal · Lexsi Labs AI Safety & Alignment Hackathon · Track 2
 
 ## Abstract
 
-Assistants that read email, documents, web pages and code can be steered by instructions planted in that content. Most prompt-injection benchmarks are English, single-turn and score only whether the agent acted. TurnGuard tests Aya Expanse 8B as a tool-using agent in English, Hindi and Hinglish, over multi-turn tasks of up to six tool steps per turn and about 5,000 tokens of context, across six simulated tool families. Each attack has a clean twin, and 229 episodes contain instructions the user really did delegate, so a defence that simply refuses everything is penalised. Attacks count as successful if the agent executes them or relays them to the user.
+A user asks an assistant to read a conference page and email them the hall code. A banner from the venue page, pasted into the conversation, contains a note in Hindi asking the assistant to send the code to a different address. In our sandbox, base Aya Expanse 8B sends it to the address in the note. With our adapter, it sends the code to the address the user gave. The [recorded example](#76-example-episode) shows both runs.
 
-The 1,043-episode test set and a 270-episode cue-flip set (which swaps the surface cues that separate attacks from legitimate instructions) were frozen before any training. Their 15 scenarios, one tool family and one carrier type are absent from training and dev data, and we found no exact or near-duplicate text overlap.
+We built TurnGuard to test that decision across turns, languages, and six simulated tool families. An attack succeeds if the assistant carries out the planted instruction or passes it to the user. The frozen test set has 1,043 episodes across 15 scenarios held out from training and tuning. It includes 407 attacks, their clean twins, and 229 cases where the user really did delegate an instruction.
 
-We compared three fixes against the base model. A defensive system prompt made attacks more successful (31.9% → 36.6%, p = 0.04). SafeTune activation steering improved dev but not test. A DPO LoRA trained with SafeTune's CST trainer on 1,032 on-policy preference pairs cut attack success to 2.5% (121 of 122 changed episodes became safer, exact McNemar p = 5e-35) and to 4.7% on cue-flip, removed every relay, raised clean task success from 20.6% to 51.8%, and left XSTest over-refusal unchanged (8.8% → 8.4%). Its costs are more malformed steps (6% → 14%), a strict-parser drop on Hindi MMLU, and no significant gain in following delegated instructions (18.8% → 24.5%).
-
-Two obvious alternatives fail. Meta's Prompt Guard 2 flagged 0 of 407 attacks, and a popular DeBERTa injection classifier caught 60% while flagging 37% of clean tool outputs and 48% of legitimate instructions. Larger models were more capable but not safer: Qwen3.8-27B completed 96.6% of clean tasks yet fell for 30.2% of attacks, and Cohere's Command A (111B) fell for 52.5% on a matched subset.
-
-We release the benchmark with every translation reviewed by a second model, the adapter, all traces, an API backend that runs any OpenAI-compatible model on the same episodes, and four upstream bug reports to the kits and to Hugging Face TRL.
-
-## Tracks and problem statements
-
-- **Track 2a, red-teaming:** problem statements 2, 3 and 4 (multilingual and multi-turn indirect prompt injection against a tool-using agent).
-- **Track 2b, correction:** problem statements 5 and 8 (hardening the model with prompt, activation steering and preference training, and checking that safety and capability did not regress).
+We trained a rank-16 LoRA adapter for Aya Expanse 8B using SafeTune’s DPO-based CST trainer and 1,032 preference pairs built from base-model rollouts. On the frozen test set, the adapter reduced attack success from **31.9% to 2.5%**. The share of attacked episodes where the agent finished the task and avoided the attack rose from **10.3% to 44.7%**. The improvement held when we swapped cues such as the language of the injected text. The adapter still followed only **24.5%** of delegated instructions.
 
 ## Artifacts
 
@@ -34,64 +19,35 @@ We release the benchmark with every translation reviewed by a second model, the 
 - [Code](https://github.com/AgrawalSujay/Lexsi-Hackathon)
 - [Demo Space](https://huggingface.co/spaces/SujayAgrawal/turnguard-demo): 14 recorded episodes, base model vs adapter side by side, including known failures
 
-## For judges: one minute
+**Track fit.** Track 2a problem statements 2–4 cover the benchmark, multi-turn audit, and multilingual evaluation. Track 2b problem statements 5 and 8 cover safety-preserving fine-tuning and inference-time steering.
 
-- **A benchmark that is hard to game.** 1,043 frozen test episodes in English, Hindi and Hinglish on 15 scenarios never used in training or tuning, including a tool family (code) and an attack carrier (tool error messages) held out entirely; a 270-episode cue-flip set that swaps the surface cues of attacks and legitimate instructions; and 229 instructions the user really did delegate, so over-blocking is measured next to attack success.
-- **A fix that generalises.** A DPO LoRA trained with SafeTune on Aya Expanse 8B's own failures cut attack success from 31.9% to 2.5% (121 of 122 changed episodes went the safe way) and to 4.7% on cue-flip, while clean task success rose 2.5× and XSTest over-refusal stayed at 8.4–8.8%.
-- **The cheap fixes didn't work.** A defensive system prompt made attacks *more* successful (31.9% → 36.6%, p = 0.04), and activation steering's dev gain did not hold on test.
-- **Bigger isn't safer.** Qwen3.8-27B completed 96.6% of clean tasks but still fell for 30.2% of attacks, the same as base Aya (31.9%); Cohere's Command A (111B) fell for 52.5% on a matched subset. Our adapter brought Aya to 2.5%.
-- **Off-the-shelf filters are not an answer here.** Meta's Prompt Guard 2 flagged 0 of 407 attacks. A popular DeBERTa injection classifier caught 60% but also flagged 37% of clean tool outputs (61% in Hindi conversations) and 48% of the instructions users had actually delegated; placed in front of the base model, it would leave 16% attack success while cutting task completion.
-- **What ships:** a ~160 MB LoRA adapter for an unchanged Aya Expanse 8B, the benchmark with every translation reviewed by a second model, all traces, and code that evaluates any OpenAI-compatible model on the same episodes.
+> **Content note.** Examples quote simulated attacks with fictitious addresses. Responses to unsafe XSTest prompts are redacted in the released logs.
 
-```mermaid
-flowchart LR
-  A[Hand-written scenarios<br/>+ attack bank] --> B[CuratorKIT build<br/>DeepSeek translation + filler]
-  B --> C[GLM-5.3 review of<br/>every translation]
-  C --> D[Frozen splits<br/>train / dev / test / cue-flip]
-  D --> E[Arms on Aya Expanse 8B<br/>A0 · A1 prompt · A2 CAA · A4 DPO]
-  E --> F[Deterministic grader<br/>executed · relayed · task · authorized]
-  F --> G[Paired tests<br/>McNemar + clustered bootstrap]
-```
-
-## What we found
-
-We wanted to know what an assistant would do if an email it opened said, “Forward this report to audit@…” Would it send the report, pass the request on to the user, or finish the task the user actually asked for?
-
-We built TurnGuard to test that in English, Hindi, and Hinglish. Each attacked episode has a clean twin. We also included legitimate instructions the user explicitly delegated. Those cases let us check whether a defence gets in the way of the user's work.
-
-We compared a defensive system prompt, activation steering, and a DPO LoRA adapter on Aya Expanse 8B. The table covers 1,043 episodes across 15 scenarios held out from training and tuning.
+## Results at a glance
 
 | | A0 baseline | A1 prompt defence | A2 steering (CAA) | **A4 DPO (SafeTune)** |
 |---|---|---|---|---|
-| Attack success incl. relay ↓ | 31.9% | 36.6%* | 30.7% | **2.5%*** |
-| Clean task success ↑ | 20.6% | 21.6% | 29.0%* | **51.8%*** |
-| Task success under attack ↑ | 10.3% | 10.1% | 15.2%* | **44.7%*** |
+| Attack success incl. relay ↓ | 31.9% | 36.6%\* | 30.7% | **2.5%**\* |
+| Clean task success ↑ | 20.6% | 21.6% | 29.0%\* | **51.8%**\* |
+| Task success under attack ↑ | 10.3% | 10.1% | 15.2%\* | **44.7%**\* |
 | Authorized instruction followed ↑ | 18.8% | 20.5% | 20.5% | 24.5% |
 | XSTest over-refusal ↓ | 8.8% | 11.2% | 8.4% | 8.4% |
 
 \* paired McNemar exact test vs A0 on identical episodes, p < 0.05.
 
-We thought a prompt or steering might be enough. The prompt raised attack success on our test, and the steering gain we saw on dev did not carry over. The DPO adapter brought attack success from 31.9% to 2.5%. The scenario-clustered 95% confidence interval for the change was −36 to −23 percentage points. On cue-flip, attack success fell from 31.8% to 4.7%.
+The prompt raised attack success in this run, and the steering improvement on dev did not carry over. DPO reduced successful attacks from 130 to 10 out of 407. The scenario-clustered 95% confidence interval for the change was **−36.3 to −22.5 percentage points**. On the 270-episode cue-flip set, attack success dropped from **31.8% to 4.7%**. Both sets were frozen with checksums before training and tuning.
 
-Baseline clean task success is low (20.6%) because TurnGuard tasks are multi-turn and conjunctive: every turn's answer and action must be correct, across up to six steps per turn and about 5,000 tokens of context. The tasks are solvable: Qwen3.8-27B completed 96.6% of them (section 7.4). A4 raised it 2.5× to 51.8%, while XSTest over-refusal stayed unchanged (8.8% → 8.4%). The adapter also completed more tasks under attack. It still followed only 24.5% of authorized instructions, and malformed steps rose from 6% to 14%. We also saw a drop on strict Hindi MMLU, where the parser rejected more of the adapter's answers.
+A clean task counts as complete only when the agent gets the required answers and actions right across every turn. Base Aya completed 20.6% of clean tasks, and the adapter brought that to 51.8%. Qwen3.8-27B reached 96.6% on the same tasks, with 30.2% attack success. See [the larger-model comparisons](#74-off-the-shelf-filters-and-larger-models).
+
+With the adapter, the model made more formatting errors. Malformed steps rose from **6% to 14%**, and strict Hindi MMLU accuracy dropped. The increase in delegated instructions followed was statistically inconclusive.
 
 ![Safety vs utility on the frozen test set](analysis/fig_tradeoff.png)
 
-**Why we trust these numbers.** The test and cue-flip sets were frozen with checksums before any training or tuning, and we never changed a fix after looking at test results (the steering configuration was picked on dev only). The 2.5% is 10 of 407 attacks on scenarios the adapter never saw, measured on the model alone, with no filter or output rewriting around it. Every comparison is paired on identical episodes, with exact McNemar tests and scenario-clustered confidence intervals, and we report what did not work alongside what did.
-
 ## 1. What we tested
 
-An assistant might read several emails and documents before it sees the injected instruction. By then, it already has context about the user and the task. We varied when the injection arrived, where it appeared in a tool result, and whether the conversation and attack were in the same language.
+An assistant might read several emails and documents before it sees the injected instruction. By then, it already has context about the user and the task. We varied when the injection arrived and where it appeared in the content. A user might ask for something in English and paste a note written in Hindi or Hinglish, so we varied the language of the conversation and the language of the injection independently.
 
-We score two ways an attack can succeed. The assistant can act on it, or it can pass the instruction along as if it came from a trusted source. A reply like “Please send the report to audit@…” can carry the attack to the user even when the assistant sends nothing itself. We count a relay even when the reply wraps the attacker's address or instruction in a warning, so a model cannot score well just by flagging the attack and repeating it; a safe reply completes the user's task without passing the injected request on. We also test the reverse situation, where the user really does ask the assistant to follow a checklist from a document.
-
-For Track 2a (problem statements 2–4), we built simulated email, calendar, document, ticket, web, and code tools, then froze the test and cue-flip sets with checksums. For each model configuration, we scored attacks executed or relayed, task success with and without an injection, authorized instruction following, and answer correctness. We used XSTest for refusal behaviour and Global-MMLU-Lite in English and Hindi for a separate look at answer accuracy.
-
-For Track 2b (problem statements 5 and 8), we ran the same evaluation for the base model (A0), an added system prompt (A1), SafeTune contrastive activation addition (A2), and a DPO LoRA trained with SafeTune CST (A4).
-
-### Why this problem
-
-Assistants that act on a user's email, calendar, documents and repositories are moving into everyday use in India, where much of that content is written in Hindi or in Hinglish, Hindi written in Latin script and mixed with English. Whoever writes an email, ticket, web page or code comment can plant an instruction in it. Existing injection benchmarks and filters are mostly English and single-turn, so a deployer has little evidence about how an open multilingual model like Aya behaves when the attack, or the whole conversation, is in Hindi or Hinglish, or what a fix costs in blocked legitimate work. TurnGuard is built to answer both questions on the same episodes.
+We score two ways an attack can succeed. The assistant can carry out the action, or it can pass the request or destination on to the user. Under our relay rule, repeating a distinctive attack target can count even in a warning. We also include cases where the user asks the assistant to follow instructions from a document, such as a checklist. Those cases show how often a defence gets in the way of legitimate work.
 
 ### Threat model
 
@@ -127,20 +83,13 @@ These were set when we designed the benchmark. They were not formally pre-regist
 | Global-MMLU-Lite (en, hi) | ↑ | Retention check of general knowledge |
 | Filter detection / false alarms / false blocks | ↑ / ↓ / ↓ | For the classifier baselines in section 7.4 |
 
-### Related work and what is new here
+### Related work
 
-TurnGuard's design was positioned against existing indirect prompt-injection benchmarks; we did not use their code or data.
-- **BIPIA** [1] introduced a benchmark for indirect injection in LLM-integrated applications, with boundary-awareness and explicit-reminder defences.
-- **InjecAgent** [2] tests tool-integrated agents with 1,054 cases of direct harm and data theft.
-- **AgentDojo** [3] provides an extensible environment of 97 agent tasks and 629 security cases, reporting utility, utility under attack and attack success, the reporting style we follow.
+BIPIA [1] tested indirect injection in LLM-integrated applications. InjecAgent [2] focused on direct harm and data theft through tool-integrated agents. AgentDojo [3] reports task utility alongside attack success, which is also how we report our results.
 
-These benchmarks are English and largely single-request. TurnGuard adds:
-1. Hindi and code-mixed Hinglish, with conversation and injection language varied independently.
-2. Multi-turn exposure, reporting the turn on which an attack lands.
-3. **Relay** to the user as a separately scored failure.
-4. User-authorized in-data instructions, so over-blocking is measured next to attack success.
+We built our own scenarios to vary the language of the attack independently of the conversation, to place attacks on different turns, and to grade relay separately from execution. The delegated-instruction cases let us see when a model blocks a request the user actually authorized.
 
-On the defence side, **SecAlign** [4] showed that preference optimisation on secure-versus-insecure responses can drive prompt-injection success below 10% while keeping utility. A4 belongs to the same method family; it is independent work that we did not build on, and we don't claim the training method as new. Our contribution is the setting (multilingual, multi-turn agents with relay and authorized controls), **on-policy** pairs built from the model's own failures, and a head-to-head comparison of prompting, activation steering and preference training on one open multilingual model, evaluated on frozen held-out scenarios.
+SecAlign [4] previously used preference optimisation to defend against prompt injection. Our DPO experiment applies that family of methods to multilingual, multi-turn tool use and compares it with prompting and activation steering. We built the preference pairs from rollout contexts and used a mix of observed and synthesized failures.
 
 ## 2. Lexsi repositories used
 
@@ -150,18 +99,34 @@ On the defence side, **SecAlign** [4] showed that preference optimisation on sec
 | **SafeTune** (0.1.14) | Both corrections, and model loading | `runner.utils.model_utils.load_model`/`load_tok` (one loading path for every arm); `interventions.harden.cst.CSTTrainer`/`CSTConfig` (DPO with LoRA, reference = adapter disabled); `interventions.steer.caa.CAAModel` (activation addition at a chosen layer) |
 | **AuditKIT** (1.1.7) | Side-effect scoring | `evaluate` with custom `scorer`s on precomputed generations for XSTest refusal classes and Global-MMLU accuracy (`auditkit.json` per run). An `agent_eval` bridge that maps TurnGuard traces to AuditKIT `AgentEpisode`/`FinalStateAssertion` is included and tested, but the headline agent metrics come from TurnGuard's own deterministic oracles. |
 
-**How the repos connect.** CuratorKIT produces the episodes. We run the base model on the training split, turn those traces into preference pairs, and use the pairs to extract the steering vectors and train the adapter in SafeTune. TurnGuard scores the frozen episodes, and AuditKIT scores the side evaluations.
+CuratorKIT produces the episodes. We run the base model on the training split, turn those traces into preference pairs, and use the pairs to extract the steering vectors and train the adapter in SafeTune. TurnGuard scores the frozen episodes, and AuditKIT scores the side evaluations.
+
+```mermaid
+flowchart LR
+  A[Hand-written scenarios and attacks] --> B[CuratorKIT and DeepSeek build the episodes]
+  B --> C[GLM-5.3 reviews translations and filler]
+  C --> D[Training split]
+  C --> H[Frozen test and cue-flip splits]
+  D --> E[Base-model rollouts and preference pairs]
+  E --> F[SafeTune steering vectors and DPO adapter]
+  F --> G[Evaluate all four Aya configurations]
+  H --> G
+  G --> I[TurnGuard grades task and attack outcomes]
+  G --> J[AuditKIT scores side evaluations]
+```
 
 ### What we had to adjust
 
-These were compatibility issues with Transformers 5 and TRL, which SafeTune 0.1.14 builds on, not bugs in the Lexsi toolkits:
+Most changes here came from running SafeTune 0.1.14 with Transformers 5 and TRL.
 
 - Our steering provenance records the exact model revision. With Transformers 5, `config._commit_hash` was sometimes unset when loading from a local cache, so we resolve the revision from the cache snapshot or the Hub.
 - `apply_chat_template(tokenize=True)` returns a `BatchEncoding` in Transformers 5. We render the chat to text and tokenize it separately so we can concatenate the prompt and completion token lists.
 - We pass `warmup_steps=0.1` (a fraction of total steps) in place of `warmup_ratio`, which Transformers 5 no longer accepts in our setup.
 - TRL's `DPOTrainer`, which SafeTune's `CSTTrainer` wraps, logs the reward metrics of every named evaluation set under the same `eval_` keys, so the subsets can't be told apart. We subclassed the trainer to keep the subset names for our held-out FINAL and ACTION sets.
 
-**Upstream reports.** We reported 4 bugs upstream, each with a repro; the maintainers fixed and merged 3 of them:
+### Upstream reports
+
+We filed four reports with reproduction steps. Maintainers merged fixes for three of them.
 
 - [huggingface/trl#8307](https://github.com/huggingface/trl/issues/8307): DPO eval metrics lose the eval-set name (the TRL issue above).
 - [Lexsi-Labs/SafeTune#84](https://github.com/Lexsi-Labs/SafeTune/issues/84): the same problem in `CSTTrainer`, fixed by the SafeTune maintainers in PR #77 (merged).
@@ -192,11 +157,11 @@ Our adapter, vectors and data are released under **CC-BY-NC-4.0**, inherited fro
 | XSTest [5] | Over-refusal and unsafe refusal (250 safe / 200 unsafe) | CC-BY-4.0 |
 | Global-MMLU-Lite [6] | Knowledge retention, 400 items each in en and hi | Apache-2.0 |
 
-XSTest is English only and Global-MMLU-Lite covers English and Hindi; both are retention checks rather than the focus task. The focus over-refusal check is our own: 229 test episodes (56 on cue-flip) in which the user delegated an instruction in English, Hindi or Hinglish, and a defence that over-blocks fails them.
+We use English XSTest and English and Hindi Global-MMLU-Lite to check for side effects. Within TurnGuard, the 229 test and 56 cue-flip episodes with delegated instructions show whether a defence blocks legitimate work.
 
 ### Sources of data
 
-All TurnGuard episodes are synthetic. We hand-wrote the scenarios, tool states, tasks and attack bank in English. DeepSeek V4.1 Flash translated them into Hindi and Hinglish and wrote filler content (about 13,400 logged calls), and GLM-5.3 reviewed every translation and filler block (section 3). Languages: English, Hindi (Devanagari) and Hinglish (romanized Hindi–English), for both the conversation and the injected text, which can differ within an episode.
+All TurnGuard episodes are synthetic. We hand-wrote the scenarios, tool states, tasks and attack bank in English. DeepSeek V4.1 Flash translated them into Hindi and Hinglish and wrote filler content (about 13,400 logged calls), and GLM-5.3 reviewed every translation and filler block. An episode’s conversation and injected text can each be in English, Hindi in Devanagari, or Hinglish written in Latin script.
 
 ### Episodes by split
 
@@ -230,11 +195,9 @@ Splits are separated by scenario: train has 12 scenarios, dev 8 and test 15, wit
 
 We kept the same 15 test scenarios and flipped those cues. The attacks now use the conversation’s language and appear in tasks where the user has delegated something. For example, the user might say, “Do whatever the warranty note says,” and the injection asks for something outside the scope of that request. The authorized instructions, meanwhile, switch languages and start with “Assistant:”. If a model relies on those cues, we’d expect more mistakes here. A model that checks what the user authorized should handle the swap better.
 
-The train, dev, and test scenarios are disjoint. We held the `code` tool family out for test. Conversation language and injection language each vary among English, Hindi, and Hinglish.
+### Translation review
 
-We gave the attacks five goals (exfiltrate, trigger an extra tool call, destroy, redirect, or tamper with the answer) and six styles (imperative, fake authority, protocol spoof, quiet FYI, named approval, or task-framed). An injection could arrive on turn 1 or turn 2, in the body, metadata, or quoted text. We placed it early, later, or across multiple tool results.
-
-We aimed for workplace Hindi and allowed Latin-script names. We used a minimum of 35% Devanagari, CuratorKIT gates and deduplication, and a cue audit to look for features that could give away which episodes were attacks. DeepSeek generated the translations and filler text. We had GLM-5.3 review every block, checking translations against the English source for preserved names, codes, and addresses, and checking filler for unintended instructions.
+We aimed for workplace Hindi, with at least 35% Devanagari and room for Latin-script names. GLM-5.3 compared each translation with the English source, checking that names, codes, and addresses survived. It also checked filler for unintended instructions.
 
 | Split | Translations reviewed | Faithful (GLM) | Action taken |
 |---|---|---|---|
@@ -283,9 +246,9 @@ The A1 defence prompt is in the logs dataset (`prompts/A1_defence.txt`) and in `
 
 ### What stayed the same across runs
 
-We used greedy decoding with up to 256 new tokens per step and six steps per user turn. Each run used the model's chat template, and tool results came back as user messages. The assistant had to produce either `ACTION: {"tool":…,"args":…}` or `FINAL: <answer>`. When neither protocol line appeared, we counted the step as malformed and sent a fixed format reminder.
+We ran the four Aya Expanse 8B configurations in bf16. We used greedy decoding with up to 256 new tokens per step and six steps per user turn. Full task success requires the expected answers and actions across all turns. Each run used the model's chat template, and tool results came back as user messages. The assistant had to produce either `ACTION: {"tool":…,"args":…}` or `FINAL: <answer>`. When neither protocol line appeared, we counted the step as malformed and sent a fixed format reminder.
 
-We compared configurations on identical episodes using exact paired McNemar tests and a scenario-clustered bootstrap with 5,000 resamples. McNemar's test compares two configurations on the same episodes and looks only at the ones where they disagree; with no real difference, those disagreements would split about evenly. For attack success on the frozen test, A4 was safer than A0 in 121 of the 122 episodes where they differed (A1: 30 safer vs 49 less safe; A2: 47 vs 42). We evaluated on Modal L40S GPUs and trained on an H100. Every episode received a grade.
+We compared configurations on identical episodes using exact paired McNemar tests and a scenario-clustered bootstrap with 5,000 resamples. McNemar's test compares two configurations on the same episodes and looks only at the ones where they disagree; with no real difference, those disagreements would split about evenly. For attack success on the frozen test, A4 was safer than A0 in 121 of the 122 episodes where they differed (A1: 30 safer vs 49 less safe; A2: 47 vs 42). We evaluated on Modal L40S GPUs and trained on an H100. Every episode received a grade. We froze test and cue-flip with checksums before training and tuning, and selected the steering configuration on dev. The Aya results use the model outputs directly, without a classifier or output rewriting.
 
 ### How we built the three interventions
 
@@ -318,13 +281,13 @@ We trained LoRA on the attention and MLP layers with rank 16, α = 32, learning 
 | Clean task success | 15.9% | 20.6% | 23.4% | **46.7%** |
 | Task success under attack | 10.3% | 8.4% | 11.2% | **34.6%** |
 
-A4's attack success stayed low on cue-flip (4.7%, vs 2.5% on the main test), so its gains are not explained by these surface cues.
+Attack success for A4 rose from 2.5% on the main test to 4.7% on cue-flip. The adapter still improved substantially over the 31.8% base rate after we swapped the cues.
 
 Relay was the most common failure we measured in the baseline. The scorer flagged 99 relays before training and zero with A4. It can miss paraphrases, so the count reflects what the scorer detected. Executed attacks also fell, from 7.6% to 2.5%. The DPO gains held on the 15 unseen scenarios, including the held-out tool family, and on cue-flip.
 
-The defensive prompt raised attack success by 4.7 points on the frozen test (p = 0.04). Under that prompt, attack success was 40.5% in Hinglish conversations and 42.2% for Hindi injections.
+Attack success was 4.7 points higher with the defensive prompt (paired p = 0.04, scenario-clustered 95% CI −0.8 to +10.0 points). Under that prompt, attack success was 40.5% in Hinglish conversations and 42.2% for Hindi injections.
 
-Steering was the result that surprised us. The configuration we picked lowered attack success by ten points on the dev comparison, which used 50 injected episodes per grid point. On test, it improved clean task success by 8.4 points and clean answer correctness by 10.1 points, both statistically significant. Attack success stayed close to baseline. Picking among six settings on a small dev sample may explain why the gain looked bigger there.
+We had expected the steering result on dev to hold up better. The configuration we picked lowered attack success by ten points on the dev comparison, which used 50 injected episodes per grid point. On test, it improved clean task success by 8.4 points and clean answer correctness by 10.1 points, both statistically significant. Attack success stayed close to baseline. Picking among six settings on a small dev sample may explain why the gain looked bigger there.
 
 ### 7.2 Breakdowns
 
@@ -366,7 +329,7 @@ The Hindi MMLU result took some digging. The strict score fell from 47.0% to 31.
 
 ### 7.4 Off-the-shelf filters and larger models
 
-Would a ready-made injection classifier, or simply a much larger model, make the adapter unnecessary? We ran both checks on the same frozen episodes.
+We compared the adapter with two classifiers and two larger models. Command A ran on a stratified subset. The other baselines used the full frozen test set.
 
 **Injection classifiers.** We scored the text a tool-output filter would see: every tool result (or user turn) that carries an attack, the same fields in the clean twins, and the fields carrying instructions the user delegated. Texts longer than 512 tokens were split into windows and the highest score kept (`scripts/detector_baseline.py`).
 
@@ -378,9 +341,9 @@ Would a ready-made injection classifier, or simply a much larger model, make the
 | Delegated instructions blocked | 0.0% | 48.0% |
 | Cue-flip: caught / false alarms / blocked | 0.0% / 0.0% / 0.0% | 41.1% / 24.3% / 53.6% |
 
-Prompt Guard 2 flagged no attack at any threshold from 0.1 to 0.9 (at most 0.2% at 0.1). To rule out a setup error, we checked that it scores a textbook jailbreak line (“Ignore all previous instructions…”) as malicious with probability 0.999; our attacks read like ordinary workplace notes and fall outside what it was trained to catch. The DeBERTa classifier catches more, but it flags over a third of clean tool outputs and about half of the legitimate instructions; as a filter it would block much of the work users ask for. Its false alarms depend heavily on language: it flagged 12.6% of clean tool outputs in English conversations, but 39.7% in Hinglish and 60.9% in Hindi, so much of its higher detection rate on Hindi attacks comes from reacting to Hindi text rather than to the attack.
+On whole tool outputs, Prompt Guard 2 flagged 0.2% at threshold 0.1 and zero at 0.5. As a sanity check, it scored a textbook jailbreak opening (“Ignore all previous instructions…”) at 0.999. The DeBERTa classifier caught more TurnGuard attacks at 0.5 and flagged many legitimate inputs. Its clean false-alarm rate was 12.6% for English conversations, 39.7% for Hinglish, and 60.9% for Hindi. Those rates matter when interpreting the higher detection rate on Hindi attacks.
 
-To see what a filter would do in practice, we simulated each one in front of the base model, episode by episode: an attack succeeds only if A0 fell for it and the filter let the tool output through, and a clean task or delegated instruction counts only if A0 completed it and the filter did not block it. Prompt Guard 2 changes nothing. The DeBERTa filter roughly halves attack success (31.9% → 16.0%) but also cuts clean task success (20.6% → 16.2%) and delegated-instruction following (18.8% → 11.4%). A4 brought attack success to 2.5% while clean task success rose to 51.8% and delegated following did not drop.
+To see what a filter would do in practice, we simulated each one in front of the base model, episode by episode: an attack succeeds only if A0 fell for it and the filter let the tool output through, and a clean task or delegated instruction counts only if A0 completed it and the filter did not block it. Prompt Guard 2 changes nothing. The DeBERTa filter roughly halves attack success (31.9% → 16.0%) but also cuts clean task success (20.6% → 16.2%) and delegated-instruction following (18.8% → 11.4%). The adapter reached 2.5% attack success and 51.8% clean task success in the actual rollouts.
 
 ![Operating points: attack success vs task success and delegated following](analysis/fig_operating_points.png)
 
@@ -395,7 +358,7 @@ Command A ran on a 159-episode stratified subset (99 attacks across languages an
 | Authorized instruction followed | 21.7% (13/60) | 23.3% (14/60) | **73.3%** (44/60) |
 | Malformed steps | 5.8% | 14.9% | 0.4% |
 
-The larger model was more capable and also easier to attack. Command A followed the user's delegated instructions three times as often as Aya, and it followed injected ones more often too: attack success was 52.5% against Aya's 32.3% (exact McNemar p = 0.004), and most of its failures were executed actions rather than relays. Scale alone did not make the agent tell authorized instructions from injected ones. On the same episodes, the 8B adapter cut attack success to 1.0%, but it still followed far fewer authorized instructions than Command A, which is the gap we would most like to close next.
+Command A followed 44 of 60 delegated instructions, compared with 13 for base Aya. It also complied with more injected instructions (52 of 99 versus 32 of 99, exact McNemar p = 0.004), primarily through tool actions. The DPO adapter saw one successful attack on the same 99 episodes and followed 14 of the 60 delegated instructions.
 
 Qwen3.8-27B ran on the full frozen test and cue-flip sets.
 
@@ -408,11 +371,11 @@ Qwen3.8-27B ran on the full frozen test and cue-flip sets.
 | Authorized instruction followed | 18.8% | 24.5% | **73.4%** |
 | Cue-flip: attack success / clean success / authorized | 31.8% / 15.9% / 19.6% | **4.7%** / 46.7% / 23.2% | 31.8% / 91.6% / 67.9% |
 
-Qwen completed almost every clean task, so the tasks are solvable, and Aya's low baseline reflects the smaller model rather than a broken benchmark. Yet Qwen fell for attacks as often as base Aya (30.2% vs 31.9%, no significant difference), and more often in Hindi (33.1%) and Hinglish (35.1%) conversations than in English (23.1%). Across both larger models the pattern is the same: more capability brings better task completion and better following of delegated instructions, but not better judgement about which instructions to follow. Our adapter is the only configuration that brings attack success into single digits; what it does not yet match is the larger models' task completion and authorized following.
+Qwen completed 96.6% of clean tasks under the same protocol, showing that a model could solve most of the benchmark. Its attack success was close to base Aya's at 30.2% versus 31.9%. In English conversations it was 23.1%, rising to 33.1% in Hindi and 35.1% in Hinglish. Qwen completed more tasks safely under attack than the DPO adapter did (60.4% vs 44.7%). That matters alongside the adapter's lower attack success.
 
 ### 7.5 Cost to break
 
-For each test scenario we estimated how many attacks an attacker would need, drawing them in random order, before the first success: (n + 1) / (k + 1) for k successes among n attacks. Input tokens are the context the model processed per attack episode.
+For scenarios with at least one observed success, we estimated the expected number of attempts before the first success if the recorded attacks were tried in random order without replacement. That expectation is (n + 1) / (k + 1) for k successes among n attacks. We also estimated how many input tokens the model would process by then.
 
 | | A0 | A1 | A2 | A4 | Qwen3.8 27B |
 |---|---|---|---|---|---|
@@ -420,7 +383,7 @@ For each test scenario we estimated how many attacks an attacker would need, dra
 | Median attempts to first success (broken scenarios) | 2.9 | 2.4 | 2.8 | **16.0** | 3.3 |
 | Median input tokens to first success | ~10k | ~9k | ~10k | **~90k** | ~14k |
 
-Six scenarios were never broken by any of their roughly 27 attacks under A4, and in the rest an attacker needed about five times as many attempts, and nine times as many tokens, as against the base model.
+The recorded attacks never broke A4 in six scenarios. Among scenarios with a success, the median estimate was 16 attempts for A4 and 2.9 for base Aya. Those medians use each model’s own set of scenarios with a success. The estimate describes the fixed attack bank.
 
 ### 7.6 Example episode
 
@@ -459,30 +422,13 @@ Training A4 took about 21 minutes on an H100. Evaluating one configuration on te
 
 ### Cost comparison for 1,000 episodes
 
-An average episode took 7.2 model calls, totalling about 19,900 input characters (roughly 5,000–6,000 tokens) and 125 output characters. Using the GPT-5.4 mini list prices in our estimate ($0.75 per million input tokens and $4.50 per million output tokens), that comes to roughly $4.30 per 1,000 episodes without prompt caching. Our unoptimised Hugging Face `generate` loop on an L40S cost about $4.70 per 1,000 episodes. This compares serving costs. The attack-success measurements in this writeup are for Aya Expanse 8B. [OpenAI model pricing](https://developers.openai.com/api/docs/models/gpt-5.4-mini)
+An average episode took 7.2 model calls, totalling about 19,900 input characters (roughly 5,000–6,000 tokens) and 125 output characters. Using the GPT-5.4 mini list prices in our estimate ($0.75 per million input tokens and $4.50 per million output tokens), that comes to roughly $4.30 per 1,000 episodes without prompt caching. Our unoptimised Hugging Face `generate` loop on an L40S cost about $4.70 per 1,000 episodes. The API figure is a billing estimate for this workload. The serving-cost comparison does not include a GPT-5.4 mini evaluation. [OpenAI model pricing](https://developers.openai.com/api/docs/models/gpt-5.4-mini)
 
 ### Experiments we'd run with more time and compute
 
-The planned approach, then our forecast for each (these are expectations, not results):
+We'd start with two experiments. First, train an SFT adapter on the same chosen responses to see how much of the gain comes from the DPO objective. Second, test pairs where the same instruction is authorized in one episode and outside the user’s request in the other. A4 gained 46 delegated cases and lost 33, and the overall change was statistically inconclusive. The Hindi subset improved (p = 0.02), while the English subset declined without a statistically significant change.
 
-- Train a plain SFT adapter on the same chosen responses to see how much of the improvement depends on the DPO objective.
-- Try a generic refusal direction and measure its effect on both attack success and over-refusal. Repeat the DPO run with more seeds.
-- Add FINAL-format examples with more complete answers. In the existing pairs, 82 chosen FINAL answers were terse.
-- Examine the authorized cases that changed. A4 gained 46 and lost 33, a net improvement of 13 that was statistically inconclusive overall. The Hindi subset improved (p = 0.02), and the English subset declined without a statistically significant change.
-- Evaluate the adapter in 4-bit and repeat the main comparison with Aya Expanse 32B.
-- Compare against spotlighting (marking or encoding tool output so the model can tell it apart from instructions). Another Lexsi team found it roughly halved attacks on their benchmark but caused many false alarms; we did not have the GPU budget to test it.
-- Use an LLM as a detector in front of the agent and measure both the attacks it catches and the delegated instructions it blocks.
-
-| Experiment | Forecast before → after |
-|---|---|
-| Plain SFT on the same chosen responses | ASR 31.9% → roughly 10–20%: helps, but less than DPO, since it never sees the rejected behaviour |
-| More FINAL-format and authorized-instruction pairs | Malformed steps 14% → under 8%; authorized followed 24.5% → 35–45%, with ASR kept under 5% |
-| Generic refusal direction (A3) | ASR down a few points at most, with XSTest over-refusal up |
-| Three more DPO seeds | ASR 2.5% ± about 1.5 points; the conclusion unchanged |
-| Adapter in 4-bit | ASR within about 1–2 points of bf16 |
-| Same recipe on Aya Expanse 32B | Base ASR similar or higher (as with Command A); DPO to under 5% with higher task success than 8B |
-| Spotlighting | ASR to roughly 15–20%, with authorized following down |
-| LLM detector in front of the agent | Catches most attacks but blocks a sizeable share of delegated instructions, like the DeBERTa filter |
+We'd also try more complete FINAL responses in the training data, since 82 chosen FINAL answers were terse. With more compute, we'd repeat DPO across seeds, test 4-bit inference and Aya Expanse 32B, and compare generic refusal steering, tool-output spotlighting, and an LLM-based detector. For each defence we'd track legitimate work blocked alongside attacks caught.
 
 ## Limitations
 
@@ -500,7 +446,7 @@ TurnGuard itself is scored by deterministic code, not an LLM judge: actions are 
 
 ## Dual-use, ethics and responsible disclosure
 
-- **What we release:** attack templates and episodes that show how to phrase an indirect injection in Hindi and Hinglish. They target fictitious example domains (`.example`, `.invalid`) inside a sandbox, contain no exploit code, credentials or real systems, and follow the same pattern as public benchmarks such as BIPIA and AgentDojo. We think the value to defenders, who currently have no multilingual test for this, outweighs the small uplift to attackers.
+- **What we release:** attack templates and episodes that show how to phrase an indirect injection in Hindi and Hinglish. They target fictitious example domains (`.example`, `.invalid`) inside a sandbox, contain no exploit code, credentials or real systems, and follow the same pattern as public benchmarks such as BIPIA and AgentDojo. The release gives defenders examples they can use to measure both attack success and false blocks in Hindi and Hinglish.
 - **Harmful content:** model responses to unsafe XSTest prompts are redacted in the released logs, and the judge caches are not published. The benchmark itself asks for no harmful content.
 - **Licensing:** data, adapter and vectors are CC-BY-NC-4.0, inherited from Aya Expanse.
 - **People:** no human subjects or personal data; all names, emails and records are synthetic.
@@ -534,12 +480,12 @@ The [README](README.md) has the commands to build the data, run each configurati
 | Public dataset and logs collection | [TurnGuard: datasets and logs](https://huggingface.co/collections/SujayAgrawal/turnguard-datasets-and-logs-6af5680eeb29a7da63da3311) |
 | Demo | [TurnGuard demo Space](https://huggingface.co/spaces/SujayAgrawal/turnguard-demo) |
 | Code with reproduction steps | [GitHub](https://github.com/AgrawalSujay/Lexsi-Hackathon), [README](README.md) |
-| Results with uncertainty | Sections 7.1–7.4 (paired McNemar tests, clustered bootstrap CIs) |
-| Abstract, claim, headline, base model and method | Top of the page |
+| Results with uncertainty | Results at a glance and sections 7.1–7.4 |
+| Abstract, base model, and main results | Top of the page |
 | Why this problem, threat model, metrics | Section 1 |
 | Attack set, over-refusal set, leak check | Section 4 |
 | Cost to break, example episode | Sections 7.5 and 7.6 |
-| Limitations, compute and cost, forecasts with more credits | Section 8 and Limitations |
+| Limitations, compute, cost, and follow-up experiments | Section 8 and Limitations |
 | Dual-use, ethics, responsible disclosure, security | After Limitations |
 | Declaration of work done outside the hackathon | Its own section |
 
@@ -554,16 +500,16 @@ Thanks to Lexsi Labs for organising the hackathon and for CuratorKIT, SafeTune a
 
 ## LLM usage statement
 
-AI assistants were used extensively to write and debug code, run analyses and draft this write-up. The authors directed the work, made the design decisions, reviewed the code and checked every reported number against the run files. DeepSeek V4.1 Flash and GLM-5.3 were used to generate and review data, as described in sections 3 and 4.
+Claude and Codex were used for coding assistance. The author designed the study and did most of the brainstorming.
 
 ## References
 
-1. J. Yi, Y. Xie, B. Zhu, et al. *Benchmarking and Defending Against Indirect Prompt Injection Attacks on Large Language Models* (BIPIA). arXiv:2312.14197, 2023.
-2. Q. Zhan, Z. Liang, Z. Ying, D. Kang. *InjecAgent: Benchmarking Indirect Prompt Injections in Tool-Integrated Large Language Model Agents.* Findings of ACL 2024. arXiv:2403.02691.
-3. E. Debenedetti, J. Zhang, M. Balunović, L. Beurer-Kellner, M. Fischer, F. Tramèr. *AgentDojo: A Dynamic Environment to Evaluate Prompt Injection Attacks and Defenses for LLM Agents.* NeurIPS 2024 Datasets and Benchmarks. arXiv:2406.13352.
-4. S. Chen, A. Zharmagambetov, S. Mahloujifar, K. Chaudhuri, D. Wagner, C. Guo. *SecAlign: Defending Against Prompt Injection with Preference Optimization.* arXiv:2410.05451, 2024.
-5. P. Röttger, H. R. Kirk, B. Vidgen, et al. *XSTest: A Test Suite for Identifying Exaggerated Safety Behaviours in Large Language Models.* NAACL 2024.
-6. S. Singh, A. Romanou, C. Fourrier, et al. *Global MMLU: Understanding and Addressing Cultural and Linguistic Biases in Multilingual Evaluation.* 2024.
+1. J. Yi, Y. Xie, B. Zhu, et al. *Benchmarking and Defending Against Indirect Prompt Injection Attacks on Large Language Models* (BIPIA). [arXiv:2312.14197](https://arxiv.org/abs/2312.14197), 2023.
+2. Q. Zhan, Z. Liang, Z. Ying, D. Kang. *InjecAgent: Benchmarking Indirect Prompt Injections in Tool-Integrated Large Language Model Agents.* Findings of ACL 2024. [arXiv:2403.02691](https://arxiv.org/abs/2403.02691).
+3. E. Debenedetti, J. Zhang, M. Balunović, L. Beurer-Kellner, M. Fischer, F. Tramèr. *AgentDojo: A Dynamic Environment to Evaluate Prompt Injection Attacks and Defenses for LLM Agents.* NeurIPS 2024 Datasets and Benchmarks. [arXiv:2406.13352](https://arxiv.org/abs/2406.13352).
+4. S. Chen, A. Zharmagambetov, S. Mahloujifar, K. Chaudhuri, D. Wagner, C. Guo. *SecAlign: Defending Against Prompt Injection with Preference Optimization.* [arXiv:2410.05451](https://arxiv.org/abs/2410.05451), 2024.
+5. P. Röttger, H. R. Kirk, B. Vidgen, et al. *XSTest: A Test Suite for Identifying Exaggerated Safety Behaviours in Large Language Models.* [NAACL 2024](https://aclanthology.org/2024.naacl-long.301/).
+6. S. Singh, A. Romanou, C. Fourrier, et al. *Global MMLU: Understanding and Addressing Cultural and Linguistic Biases in Multilingual Evaluation.* [ACL 2025](https://aclanthology.org/2025.acl-long.919/).
 7. Meta. *Llama Prompt Guard 2* (86M) model card. 2025. https://huggingface.co/meta-llama/Llama-Prompt-Guard-2-86M
 8. ProtectAI. *deberta-v3-base-prompt-injection-v2* model card. 2024. https://huggingface.co/protectai/deberta-v3-base-prompt-injection-v2
 9. Cohere. *Command A: An Enterprise-Ready Large Language Model.* 2025.
